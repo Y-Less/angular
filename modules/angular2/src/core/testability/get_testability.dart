@@ -82,9 +82,48 @@ class PublicTestability implements _JsObjectProxyable {
 
 class GetTestability {
   static addToWindow(TestabilityRegistry registry) {
-    js.context['getAngularTestability'] = _jsify((Element elem) {
-      Testability testability = registry.findTestabilityInTree(elem);
-      return _jsify(new PublicTestability(testability));
+    var jsRegistry = js.context['ngTestabilityRegistries'];
+    if (jsRegistry == null) {
+      js.context['ngTestabilityRegistries'] = jsRegistry = new js.JsArray();
+      js.context['getAngularTestability'] = _jsify((Element elem,
+          [bool findInAncestors = true]) {
+        var registry = js.context['ngTestabilityRegistries'];
+        for (int i = 0; i < registry.length; i++) {
+          var result = registry[i].callMethod(
+              'getAngularTestability', [elem, findInAncestors]);
+          if (result != null) return result;
+        }
+        throw 'Could not find testability for element.';
+      });
+      js.context['getAllAngularTestabilities'] = _jsify(() {
+        var registry = js.context['ngTestabilityRegistries'];
+        var result = [];
+        for (int i = 0; i < registry.length; i++) {
+          var testabilities =
+              registry[i].callMethod('getAllAngularTestabilities');
+          if (testabilities != null) result.addAll(testabilities);
+        }
+        return _jsify(result);
+      });
+    }
+    jsRegistry.add(_createRegistry(registry));
+  }
+
+  static js.JsObject _createRegistry(TestabilityRegistry registry) {
+    var object = new js.JsObject(js.context['Object']);
+    object['getAngularTestability'] = _jsify((Element elem,
+        bool findInAncestors) {
+      var testability = registry.findTestabilityInTree(elem, findInAncestors);
+      return testability == null
+          ? null
+          : _jsify(new PublicTestability(testability));
     });
+    object['getAllAngularTestabilities'] = _jsify(() {
+      var publicTestabilities = registry
+          .getAllTestabilities()
+          .map((testability) => new PublicTestability(testability));
+      return _jsify(publicTestabilities);
+    });
+    return object;
   }
 }

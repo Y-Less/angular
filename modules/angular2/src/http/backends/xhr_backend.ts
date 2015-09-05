@@ -1,12 +1,12 @@
 import {ConnectionBackend, Connection} from '../interfaces';
-import {ReadyStates, RequestMethods, RequestMethodsMap} from '../enums';
+import {ReadyStates, RequestMethods, ResponseTypes} from '../enums';
 import {Request} from '../static_request';
 import {Response} from '../static_response';
 import {ResponseOptions, BaseResponseOptions} from '../base_response_options';
-import {Injectable} from 'angular2/di';
+import {Injectable} from 'angular2/src/core/di';
 import {BrowserXhr} from './browser_xhr';
-import {EventEmitter, ObservableWrapper} from 'angular2/src/facade/async';
-import {isPresent, ENUM_INDEX} from 'angular2/src/facade/lang';
+import {EventEmitter, ObservableWrapper} from 'angular2/src/core/facade/async';
+import {isPresent} from 'angular2/src/core/facade/lang';
 
 /**
  * Creates connections using `XMLHttpRequest`. Given a fully-qualified
@@ -27,22 +27,42 @@ export class XHRConnection implements Connection {
   private _xhr;  // TODO: make type XMLHttpRequest, pending resolution of
                  // https://github.com/angular/ts2dart/issues/230
   constructor(req: Request, browserXHR: BrowserXhr, baseResponseOptions?: ResponseOptions) {
-    // TODO: get rid of this when enum lookups are available in ts2dart
-    // https://github.com/angular/ts2dart/issues/221
-    var requestMethodsMap = new RequestMethodsMap();
     this.request = req;
     this.response = new EventEmitter();
     this._xhr = browserXHR.build();
     // TODO(jeffbcross): implement error listening/propagation
-    this._xhr.open(requestMethodsMap.getMethod(ENUM_INDEX(req.method)), req.url);
+    this._xhr.open(RequestMethods[req.method].toUpperCase(), req.url);
     this._xhr.addEventListener('load', (_) => {
-      var responseOptions = new ResponseOptions(
-          {body: isPresent(this._xhr.response) ? this._xhr.response : this._xhr.responseText});
+      // responseText is the old-school way of retrieving response (supported by IE8 & 9)
+      // response/responseType properties were introduced in XHR Level2 spec (supported by IE10)
+      let response = isPresent(this._xhr.response) ? this._xhr.response : this._xhr.responseText;
+
+      // normalize IE9 bug (http://bugs.jquery.com/ticket/1450)
+      let status = this._xhr.status === 1223 ? 204 : this._xhr.status;
+
+      // fix status code when it is 0 (0 status is undocumented).
+      // Occurs when accessing file resources or on Android 4.1 stock browser
+      // while retrieving files from application cache.
+      if (status === 0) {
+        status = response ? 200 : 0;
+      }
+
+      var responseOptions = new ResponseOptions({body: response, status: status});
       if (isPresent(baseResponseOptions)) {
         responseOptions = baseResponseOptions.merge(responseOptions);
       }
 
       ObservableWrapper.callNext(this.response, new Response(responseOptions));
+      // TODO(gdi2290): defer complete if array buffer until done
+      ObservableWrapper.callReturn(this.response);
+    });
+
+    this._xhr.addEventListener('error', (err) => {
+      var responseOptions = new ResponseOptions({body: err, type: ResponseTypes.Error});
+      if (isPresent(baseResponseOptions)) {
+        responseOptions = baseResponseOptions.merge(responseOptions);
+      }
+      ObservableWrapper.callThrow(this.response, new Response(responseOptions));
     });
     // TODO(jeffbcross): make this more dynamic based on body type
 
@@ -69,10 +89,10 @@ export class XHRConnection implements Connection {
  * #Example
  *
  * ```
- * import {Http, MyNodeBackend, httpInjectables, BaseRequestOptions} from 'angular2/http';
+ * import {Http, MyNodeBackend, HTTP_BINDINGS, BaseRequestOptions} from 'angular2/http';
  * @Component({
- *   viewInjector: [
- *     httpInjectables,
+ *   viewBindings: [
+ *     HTTP_BINDINGS,
  *     bind(Http).toFactory((backend, options) => {
  *       return new Http(backend, options);
  *     }, [MyNodeBackend, BaseRequestOptions])]

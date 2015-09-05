@@ -12,16 +12,21 @@ import {
   beforeEachBindings,
   it,
   xit,
-  SpyObject,
-  SpyChangeDetector,
-  SpyProtoChangeDetector,
-  proxy,
-  Log
+  Log,
+  SpyObject
 } from 'angular2/test_lib';
 
-import {Injector, bind} from 'angular2/di';
-import {IMPLEMENTS, isBlank, isPresent} from 'angular2/src/facade/lang';
-import {MapWrapper, ListWrapper, StringMapWrapper} from 'angular2/src/facade/collection';
+import {
+  SpyChangeDetector,
+  SpyProtoChangeDetector,
+  SpyProtoElementInjector,
+  SpyElementInjector,
+  SpyPreBuiltObjects
+} from '../spies';
+
+import {Injector, bind} from 'angular2/core';
+import {isBlank, isPresent} from 'angular2/src/core/facade/lang';
+import {MapWrapper, ListWrapper, StringMapWrapper} from 'angular2/src/core/facade/collection';
 
 import {AppProtoView, AppView, AppProtoViewMergeMapping} from 'angular2/src/core/compiler/view';
 import {ElementBinder} from 'angular2/src/core/compiler/element_binder';
@@ -32,9 +37,13 @@ import {
   ProtoElementInjector
 } from 'angular2/src/core/compiler/element_injector';
 import {DirectiveResolver} from 'angular2/src/core/compiler/directive_resolver';
-import {Component} from 'angular2/annotations';
+import {Component} from 'angular2/src/core/metadata';
 import {AppViewManagerUtils} from 'angular2/src/core/compiler/view_manager_utils';
-import {RenderProtoViewMergeMapping, ViewType, RenderViewWithFragments} from 'angular2/render';
+import {
+  RenderProtoViewMergeMapping,
+  ViewType,
+  RenderViewWithFragments
+} from 'angular2/src/core/render/render';
 
 export function main() {
   // TODO(tbosch): add more tests here!
@@ -78,47 +87,18 @@ export function main() {
             createHostPv([createNestedElBinder(createComponentPv()), createEmptyElBinder()]);
         var hostView = createViewWithChildren(hostPv);
         var spyEventAccessor1 = SpyObject.stub({"subscribe": null});
-        SpyObject.stub(hostView.elementInjectors[0], {
-          'getHostActionAccessors': [],
-          'getEventEmitterAccessors': [[spyEventAccessor1]],
-          'getDirectiveAtIndex': dir
-        });
+        SpyObject.stub(
+            hostView.elementInjectors[0],
+            {'getEventEmitterAccessors': [[spyEventAccessor1]], 'getDirectiveAtIndex': dir});
         var spyEventAccessor2 = SpyObject.stub({"subscribe": null});
-        SpyObject.stub(hostView.elementInjectors[1], {
-          'getHostActionAccessors': [],
-          'getEventEmitterAccessors': [[spyEventAccessor2]],
-          'getDirectiveAtIndex': dir
-        });
+        SpyObject.stub(
+            hostView.elementInjectors[1],
+            {'getEventEmitterAccessors': [[spyEventAccessor2]], 'getDirectiveAtIndex': dir});
 
         utils.hydrateRootHostView(hostView, createInjector());
 
         expect(spyEventAccessor1.spy('subscribe')).toHaveBeenCalledWith(hostView, 0, dir);
         expect(spyEventAccessor2.spy('subscribe')).toHaveBeenCalledWith(hostView, 1, dir);
-      });
-
-      it("should set up host action listeners", () => {
-        var dir = new Object();
-
-        var hostPv =
-            createHostPv([createNestedElBinder(createComponentPv()), createEmptyElBinder()]);
-        var hostView = createViewWithChildren(hostPv);
-        var spyActionAccessor1 = SpyObject.stub({"subscribe": null});
-        SpyObject.stub(hostView.elementInjectors[0], {
-          'getHostActionAccessors': [[spyActionAccessor1]],
-          'getEventEmitterAccessors': [],
-          'getDirectiveAtIndex': dir
-        });
-        var spyActionAccessor2 = SpyObject.stub({"subscribe": null});
-        SpyObject.stub(hostView.elementInjectors[1], {
-          'getHostActionAccessors': [[spyActionAccessor2]],
-          'getEventEmitterAccessors': [],
-          'getDirectiveAtIndex': dir
-        });
-
-        utils.hydrateRootHostView(hostView, createInjector());
-
-        expect(spyActionAccessor1.spy('subscribe')).toHaveBeenCalledWith(hostView, 0, dir);
-        expect(spyActionAccessor2.spy('subscribe')).toHaveBeenCalledWith(hostView, 1, dir);
       });
 
       it("should not hydrate element injectors of component views inside of embedded fragments",
@@ -151,23 +131,23 @@ export function main() {
         var binders = [];
         for (var i = 0; i < numInj; i++) {
           binders.push(createEmptyElBinder(i > 0 ? binders[i - 1] : null))
-        };
+        }
         var contextPv = createHostPv(binders);
         contextView = createViewWithChildren(contextPv);
       }
 
-      it('should link the views rootElementInjectors at the given context', () => {
+      it('should not modify the rootElementInjectors at the given context view', () => {
         createViews();
         utils.attachViewInContainer(parentView, 0, contextView, 0, 0, childView);
-        expect(contextView.rootElementInjectors.length).toEqual(2);
+        expect(contextView.rootElementInjectors.length).toEqual(1);
       });
 
       it('should link the views rootElementInjectors after the elementInjector at the given context',
          () => {
            createViews(2);
            utils.attachViewInContainer(parentView, 0, contextView, 1, 0, childView);
-           expect(childView.rootElementInjectors[0].spy('linkAfter'))
-               .toHaveBeenCalledWith(contextView.elementInjectors[0], null);
+           expect(childView.rootElementInjectors[0].spy('link'))
+               .toHaveBeenCalledWith(contextView.elementInjectors[0]);
          });
     });
 
@@ -226,22 +206,26 @@ export function createInjector() {
 }
 
 function createElementInjector(parent = null) {
-  var host = new SpyElementInjector(null);
-  var elementInjector = new SpyElementInjector(parent);
-  return SpyObject.stub(elementInjector,
-                        {
-                          'isExportingComponent': false,
-                          'isExportingElement': false,
-                          'getEventEmitterAccessors': [],
-                          'getHostActionAccessors': [],
-                          'getComponent': new Object(),
-                          'getHost': host
-                        },
-                        {});
+  var host = new SpyElementInjector();
+  var elementInjector = new SpyElementInjector();
+  var res = SpyObject.stub(elementInjector,
+                           {
+                             'isExportingComponent': false,
+                             'isExportingElement': false,
+                             'getEventEmitterAccessors': [],
+                             'getHostActionAccessors': [],
+                             'getComponent': new Object(),
+                             'getHost': host
+                           },
+                           {});
+  res.prop('parent', parent);
+  return res;
 }
 
 export function createProtoElInjector(parent: ProtoElementInjector = null): ProtoElementInjector {
-  var pei = new SpyProtoElementInjector(parent);
+  var pei = new SpyProtoElementInjector();
+  pei.prop("parent", parent);
+  pei.prop("index", 0);
   pei.spy('instantiate').andCallFake((parentEli) => createElementInjector(parentEli));
   return <any>pei;
 }
@@ -289,13 +273,32 @@ function calcHostElementIndicesByViewIndex(pv: AppProtoView, elementOffset = 0,
   return target;
 }
 
+function countNestedProtoViews(pv: AppProtoView, target: number[] = null): number[] {
+  if (isBlank(target)) {
+    target = [];
+  }
+  target.push(null);
+  var resultIndex = target.length - 1;
+  var count = 0;
+  for (var binderIdx = 0; binderIdx < pv.elementBinders.length; binderIdx++) {
+    var binder = pv.elementBinders[binderIdx];
+    if (isPresent(binder.nestedProtoView)) {
+      var nextResultIndex = target.length;
+      countNestedProtoViews(binder.nestedProtoView, target);
+      count += target[nextResultIndex] + 1;
+    }
+  }
+  target[resultIndex] = count;
+  return target;
+}
+
 function _createProtoView(type: ViewType, binders: ElementBinder[] = null) {
   if (isBlank(binders)) {
     binders = [];
   }
   var protoChangeDetector = <any>new SpyProtoChangeDetector();
   protoChangeDetector.spy('instantiate').andReturn(new SpyChangeDetector());
-  var res = new AppProtoView(type, protoChangeDetector, null, null, 0);
+  var res = new AppProtoView(type, null, null, protoChangeDetector, null, null, 0, null);
   res.elementBinders = binders;
   var mappedElementIndices = ListWrapper.createFixedSize(countNestedElementBinders(res));
   for (var i = 0; i < binders.length; i++) {
@@ -304,9 +307,12 @@ function _createProtoView(type: ViewType, binders: ElementBinder[] = null) {
     binder.protoElementInjector.index = i;
   }
   var hostElementIndicesByViewIndex = calcHostElementIndicesByViewIndex(res);
-  res.mergeMapping = new AppProtoViewMergeMapping(
-      new RenderProtoViewMergeMapping(null, hostElementIndicesByViewIndex.length,
-                                      mappedElementIndices, [], hostElementIndicesByViewIndex));
+  if (type === ViewType.EMBEDDED || type === ViewType.HOST) {
+    res.mergeMapping = new AppProtoViewMergeMapping(
+        new RenderProtoViewMergeMapping(null, hostElementIndicesByViewIndex.length,
+                                        mappedElementIndices, mappedElementIndices.length, [],
+                                        hostElementIndicesByViewIndex, countNestedProtoViews(res)));
+  }
   return res;
 }
 
@@ -325,33 +331,4 @@ export function createEmbeddedPv(binders: ElementBinder[] = null) {
 
 @Component({selector: 'someComponent'})
 class SomeComponent {
-}
-
-@proxy
-@IMPLEMENTS(ProtoElementInjector)
-class SpyProtoElementInjector extends SpyObject {
-  index: number;
-  constructor(public parent: ProtoElementInjector) { super(ProtoElementInjector); }
-  noSuchMethod(m) { return super.noSuchMethod(m) }
-}
-
-@proxy
-@IMPLEMENTS(ElementInjector)
-class SpyElementInjector extends SpyObject {
-  constructor(public parent: ElementInjector) { super(ElementInjector); }
-  noSuchMethod(m) { return super.noSuchMethod(m) }
-}
-
-@proxy
-@IMPLEMENTS(PreBuiltObjects)
-class SpyPreBuiltObjects extends SpyObject {
-  constructor() { super(PreBuiltObjects); }
-  noSuchMethod(m) { return super.noSuchMethod(m) }
-}
-
-@proxy
-@IMPLEMENTS(Injector)
-class SpyInjector extends SpyObject {
-  constructor() { super(Injector); }
-  noSuchMethod(m) { return super.noSuchMethod(m) }
 }

@@ -1,22 +1,21 @@
+import {bootstrap} from 'angular2/bootstrap';
 import {
-  bootstrap,
-  onChange,
   NgIf,
   NgFor,
   Component,
   Directive,
   View,
-  Ancestor,
-  NgValidator,
+  Host,
+  NG_VALIDATORS,
   forwardRef,
-  Binding
-} from 'angular2/angular2';
-import {formDirectives, NgControl, Validators, NgForm} from 'angular2/forms';
+  Binding,
+  FORM_DIRECTIVES,
+  NgControl,
+  Validators,
+  NgForm
+} from 'angular2/core';
 
-import {RegExpWrapper, print, isPresent, CONST_EXPR} from 'angular2/src/facade/lang';
-
-import {reflector} from 'angular2/src/reflection/reflection';
-import {ReflectionCapabilities} from 'angular2/src/reflection/reflection_capabilities';
+import {RegExpWrapper, print, isPresent, CONST_EXPR} from 'angular2/src/core/facade/lang';
 
 /**
  * A domain model we are binding the form controls to.
@@ -36,20 +35,19 @@ class CheckoutModel {
 /**
  * Custom validator.
  */
-const creditCardValidatorBinding =
-    CONST_EXPR(new Binding(NgValidator, {toAlias: forwardRef(() => CreditCardValidator)}));
-
-@Directive({selector: '[credit-card]', hostInjector: [creditCardValidatorBinding]})
-class CreditCardValidator {
-  get validator() { return CreditCardValidator.validate; }
-
-  static validate(c): StringMap<string, boolean> {
-    if (isPresent(c.value) && RegExpWrapper.test(new RegExp("^\\d{16}$"), c.value)) {
-      return null;
-    } else {
-      return {"invalidCreditCard": true};
-    }
+function creditCardValidator(c): StringMap<string, boolean> {
+  if (isPresent(c.value) && RegExpWrapper.test(new RegExp("^\\d{16}$"), c.value)) {
+    return null;
+  } else {
+    return {"invalidCreditCard": true};
   }
+}
+
+const creditCardValidatorBinding =
+    CONST_EXPR(new Binding(NG_VALIDATORS, {toValue: creditCardValidator, multi: true}));
+
+@Directive({selector: '[credit-card]', bindings: [creditCardValidatorBinding]})
+class CreditCardValidator {
 }
 
 /**
@@ -77,9 +75,9 @@ class CreditCardValidator {
 class ShowError {
   formDir;
   controlPath: string;
-  errorTypes: List<string>;
+  errorTypes: string[];
 
-  constructor(@Ancestor() formDir: NgForm) { this.formDir = formDir; }
+  constructor(@Host() formDir: NgForm) { this.formDir = formDir; }
 
   get errorMessage() {
     var c = this.formDir.form.find(this.controlPath);
@@ -155,7 +153,7 @@ class ShowError {
       <button type="submit" [disabled]="!f.form.valid">Submit</button>
     </form>
   `,
-  directives: [formDirectives, NgFor, CreditCardValidator, ShowError]
+  directives: [FORM_DIRECTIVES, NgFor, CreditCardValidator, ShowError]
 })
 class TemplateDrivenForms {
   model = new CheckoutModel();
@@ -168,6 +166,5 @@ class TemplateDrivenForms {
 }
 
 export function main() {
-  reflector.reflectionCapabilities = new ReflectionCapabilities();
   bootstrap(TemplateDrivenForms);
 }

@@ -10,198 +10,167 @@ import {
   SpyObject
 } from 'angular2/test_lib';
 
-import {Map, StringMap, StringMapWrapper} from 'angular2/src/facade/collection';
+import {Map, StringMap, StringMapWrapper} from 'angular2/src/core/facade/collection';
 
-import {RouteRecognizer, RouteMatch} from 'angular2/src/router/route_recognizer';
+import {RouteRecognizer} from 'angular2/src/router/route_recognizer';
+import {ComponentInstruction} from 'angular2/src/router/instruction';
+
+import {Route, Redirect} from 'angular2/src/router/route_config_decorator';
+import {parser} from 'angular2/src/router/url_parser';
 
 export function main() {
   describe('RouteRecognizer', () => {
     var recognizer;
-    var handler = {'component': DummyCmpA};
-    var handler2 = {'component': DummyCmpB};
 
     beforeEach(() => { recognizer = new RouteRecognizer(); });
 
 
     it('should recognize a static segment', () => {
-      recognizer.addConfig('/test', handler);
-      var solution = recognizer.recognize('/test')[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
+      recognizer.config(new Route({path: '/test', component: DummyCmpA}));
+      var solution = recognize(recognizer, '/test');
+      expect(getComponentType(solution)).toEqual(DummyCmpA);
     });
 
 
     it('should recognize a single slash', () => {
-      recognizer.addConfig('/', handler);
-      var solution = recognizer.recognize('/')[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
+      recognizer.config(new Route({path: '/', component: DummyCmpA}));
+      var solution = recognize(recognizer, '/');
+      expect(getComponentType(solution)).toEqual(DummyCmpA);
     });
 
 
     it('should recognize a dynamic segment', () => {
-      recognizer.addConfig('/user/:name', handler);
-      var solution = recognizer.recognize('/user/brian')[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
-      expect(solution.params()).toEqual({'name': 'brian'});
+      recognizer.config(new Route({path: '/user/:name', component: DummyCmpA}));
+      var solution = recognize(recognizer, '/user/brian');
+      expect(getComponentType(solution)).toEqual(DummyCmpA);
+      expect(solution.params).toEqual({'name': 'brian'});
     });
 
 
     it('should recognize a star segment', () => {
-      recognizer.addConfig('/first/*rest', handler);
-      var solution = recognizer.recognize('/first/second/third')[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
-      expect(solution.params()).toEqual({'rest': 'second/third'});
+      recognizer.config(new Route({path: '/first/*rest', component: DummyCmpA}));
+      var solution = recognize(recognizer, '/first/second/third');
+      expect(getComponentType(solution)).toEqual(DummyCmpA);
+      expect(solution.params).toEqual({'rest': 'second/third'});
     });
 
 
     it('should throw when given two routes that start with the same static segment', () => {
-      recognizer.addConfig('/hello', handler);
-      expect(() => recognizer.addConfig('/hello', handler2))
+      recognizer.config(new Route({path: '/hello', component: DummyCmpA}));
+      expect(() => recognizer.config(new Route({path: '/hello', component: DummyCmpB})))
           .toThrowError('Configuration \'/hello\' conflicts with existing route \'/hello\'');
     });
 
 
     it('should throw when given two routes that have dynamic segments in the same order', () => {
-      recognizer.addConfig('/hello/:person/how/:doyoudou', handler);
-      expect(() => recognizer.addConfig('/hello/:friend/how/:areyou', handler2))
+      recognizer.config(new Route({path: '/hello/:person/how/:doyoudou', component: DummyCmpA}));
+      expect(() => recognizer.config(
+                 new Route({path: '/hello/:friend/how/:areyou', component: DummyCmpA})))
           .toThrowError(
               'Configuration \'/hello/:friend/how/:areyou\' conflicts with existing route \'/hello/:person/how/:doyoudou\'');
     });
 
 
     it('should recognize redirects', () => {
-      recognizer.addRedirect('/a', '/b');
-      recognizer.addConfig('/b', handler);
-      var solutions = recognizer.recognize('/a');
-      expect(solutions.length).toBe(1);
-
-      var solution = solutions[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
-      expect(solution.matchedUrl).toEqual('/b');
+      recognizer.config(new Route({path: '/b', component: DummyCmpA}));
+      recognizer.config(new Redirect({path: '/a', redirectTo: 'b'}));
+      var solution = recognize(recognizer, '/a');
+      expect(getComponentType(solution)).toEqual(DummyCmpA);
+      expect(solution.urlPath).toEqual('b');
     });
+
 
     it('should not perform root URL redirect on a non-root route', () => {
-      recognizer.addRedirect('/', '/foo');
-      recognizer.addConfig('/bar', handler);
-      var solutions = recognizer.recognize('/bar');
-      expect(solutions.length).toBe(1);
-
-      var solution = solutions[0];
-      expect(getComponentType(solution)).toEqual(handler['component']);
-      expect(solution.matchedUrl).toEqual('/bar');
+      recognizer.config(new Redirect({path: '/', redirectTo: '/foo'}));
+      recognizer.config(new Route({path: '/bar', component: DummyCmpA}));
+      var solution = recognize(recognizer, '/bar');
+      expect(solution.componentType).toEqual(DummyCmpA);
+      expect(solution.urlPath).toEqual('bar');
     });
 
-    it('should perform a root URL redirect when only a slash or an empty string is being processed',
-       () => {
-         recognizer.addRedirect('/', '/matias');
-         recognizer.addConfig('/matias', handler);
 
-         recognizer.addConfig('/fatias', handler);
+    it('should perform a root URL redirect only for root routes', () => {
+      recognizer.config(new Redirect({path: '/', redirectTo: '/matias'}));
+      recognizer.config(new Route({path: '/matias', component: DummyCmpA}));
+      recognizer.config(new Route({path: '/fatias', component: DummyCmpA}));
 
-         var solutions;
+      var solution;
 
-         solutions = recognizer.recognize('/');
-         expect(solutions[0].matchedUrl).toBe('/matias');
+      solution = recognize(recognizer, '/');
+      expect(solution.urlPath).toEqual('matias');
 
-         solutions = recognizer.recognize('/fatias');
-         expect(solutions[0].matchedUrl).toBe('/fatias');
+      solution = recognize(recognizer, '/fatias');
+      expect(solution.urlPath).toEqual('fatias');
 
-         solutions = recognizer.recognize('');
-         expect(solutions[0].matchedUrl).toBe('/matias');
-       });
+      solution = recognize(recognizer, '');
+      expect(solution.urlPath).toEqual('matias');
+    });
+
 
     it('should generate URLs with params', () => {
-      recognizer.addConfig('/app/user/:name', handler, 'user');
-      expect(recognizer.generate('user', {'name': 'misko'})['url']).toEqual('app/user/misko');
+      recognizer.config(new Route({path: '/app/user/:name', component: DummyCmpA, as: 'user'}));
+      var instruction = recognizer.generate('user', {'name': 'misko'});
+      expect(instruction.urlPath).toEqual('app/user/misko');
     });
+
 
     it('should generate URLs with numeric params', () => {
-      recognizer.addConfig('/app/page/:number', handler, 'page');
-      expect(recognizer.generate('page', {'number': 42})['url']).toEqual('app/page/42');
+      recognizer.config(new Route({path: '/app/page/:number', component: DummyCmpA, as: 'page'}));
+      expect(recognizer.generate('page', {'number': 42}).urlPath).toEqual('app/page/42');
     });
 
+
     it('should throw in the absence of required params URLs', () => {
-      recognizer.addConfig('app/user/:name', handler, 'user');
-      expect(() => recognizer.generate('user', {})['url'])
+      recognizer.config(new Route({path: 'app/user/:name', component: DummyCmpA, as: 'user'}));
+      expect(() => recognizer.generate('user', {}))
           .toThrowError('Route generator for \'name\' was not included in parameters passed.');
     });
 
-    describe('matrix params', () => {
-      it('should recognize matrix parameters within the URL path', () => {
-        var recognizer = new RouteRecognizer();
-        recognizer.addConfig('profile/:name', handler, 'user');
 
-        var solution = recognizer.recognize('/profile/matsko;comments=all')[0];
-        var params = solution.params();
-        expect(params['name']).toEqual('matsko');
-        expect(params['comments']).toEqual('all');
+    describe('params', () => {
+      it('should recognize parameters within the URL path', () => {
+        recognizer.config(new Route({path: 'profile/:name', component: DummyCmpA, as: 'user'}));
+        var solution = recognize(recognizer, '/profile/matsko?comments=all');
+        expect(solution.params).toEqual({'name': 'matsko', 'comments': 'all'});
       });
 
-      it('should recognize multiple matrix params and set parameters that contain no value to true',
+
+      it('should generate and populate the given static-based route with querystring params',
          () => {
-           var recognizer = new RouteRecognizer();
-           recognizer.addConfig('/profile/hello', handler, 'user');
+           recognizer.config(
+               new Route({path: 'forum/featured', component: DummyCmpA, as: 'forum-page'}));
 
-           var solution =
-               recognizer.recognize('/profile/hello;modal;showAll=true;hideAll=false')[0];
-           var params = solution.params();
+           var params = {'start': 10, 'end': 100};
 
-           expect(params['modal']).toEqual(true);
-           expect(params['showAll']).toEqual('true');
-           expect(params['hideAll']).toEqual('false');
+           var result = recognizer.generate('forum-page', params);
+           expect(result.urlPath).toEqual('forum/featured');
+           expect(result.urlParams).toEqual(['start=10', 'end=100']);
          });
 
-      it('should only consider the matrix parameters at the end of the path handler', () => {
-        var recognizer = new RouteRecognizer();
-        recognizer.addConfig('/profile/hi/:name', handler, 'user');
 
-        var solution = recognizer.recognize('/profile;a=1/hi;b=2;c=3/william;d=4')[0];
-        var params = solution.params();
+      it('should prefer positional params over query params', () => {
+        recognizer.config(new Route({path: 'profile/:name', component: DummyCmpA, as: 'user'}));
 
-        expect(params).toEqual({'name': 'william', 'd': '4'});
+        var solution = recognize(recognizer, '/profile/yegor?name=igor');
+        expect(solution.params).toEqual({'name': 'yegor'});
       });
 
-      it('should generate and populate the given static-based route with matrix params', () => {
-        var recognizer = new RouteRecognizer();
-        recognizer.addConfig('forum/featured', handler, 'forum-page');
 
-        var params = StringMapWrapper.create();
-        params['start'] = 10;
-        params['end'] = 100;
-
-        var result = recognizer.generate('forum-page', params);
-        expect(result['url']).toEqual('forum/featured;start=10;end=100');
+      it('should ignore matrix params for the top-level component', () => {
+        recognizer.config(new Route({path: '/home/:subject', component: DummyCmpA, as: 'user'}));
+        var solution = recognize(recognizer, '/home;sort=asc/zero;one=1?two=2');
+        expect(solution.params).toEqual({'subject': 'zero', 'two': '2'});
       });
-
-      it('should generate and populate the given dynamic-based route with matrix params', () => {
-        var recognizer = new RouteRecognizer();
-        recognizer.addConfig('forum/:topic', handler, 'forum-page');
-
-        var params = StringMapWrapper.create();
-        params['topic'] = 'crazy';
-        params['total-posts'] = 100;
-        params['moreDetail'] = null;
-
-        var result = recognizer.generate('forum-page', params);
-        expect(result['url']).toEqual('forum/crazy;total-posts=100;moreDetail');
-      });
-
-      it('should not apply any matrix params if a dynamic route segment takes up the slot when a path is generated',
-         () => {
-           var recognizer = new RouteRecognizer();
-           recognizer.addConfig('hello/:name', handler, 'profile-page');
-
-           var params = StringMapWrapper.create();
-           params['name'] = 'matsko';
-
-           var result = recognizer.generate('profile-page', params);
-           expect(result['url']).toEqual('hello/matsko');
-         });
     });
   });
 }
 
-function getComponentType(routeMatch: RouteMatch): any {
-  return routeMatch.recognizer.handler.componentType;
+function recognize(recognizer: RouteRecognizer, url: string): ComponentInstruction {
+  return recognizer.recognize(parser.parse(url))[0].instruction;
+}
+
+function getComponentType(routeMatch: ComponentInstruction): any {
+  return routeMatch.componentType;
 }
 
 class DummyCmpA {}

@@ -1,19 +1,19 @@
+import {bootstrap} from 'angular2/bootstrap';
 import {
-  bootstrap,
-  onChange,
+  FORM_DIRECTIVES,
+  NgControl,
+  Validators,
+  NgFormModel,
+  FormBuilder,
   NgIf,
   NgFor,
   Component,
   Directive,
   View,
-  Ancestor
-} from 'angular2/angular2';
-import {formDirectives, NgControl, Validators, NgFormModel, FormBuilder} from 'angular2/forms';
+  Host
+} from 'angular2/core';
 
-import {RegExpWrapper, print, isPresent} from 'angular2/src/facade/lang';
-
-import {reflector} from 'angular2/src/reflection/reflection';
-import {ReflectionCapabilities} from 'angular2/src/reflection/reflection_capabilities';
+import {RegExpWrapper, print, isPresent} from 'angular2/src/core/facade/lang';
 
 /**
  * Custom validator.
@@ -51,9 +51,9 @@ function creditCardValidator(c): StringMap<string, boolean> {
 class ShowError {
   formDir;
   controlPath: string;
-  errorTypes: List<string>;
+  errorTypes: string[];
 
-  constructor(@Ancestor() formDir: NgFormModel) { this.formDir = formDir; }
+  constructor(@Host() formDir: NgFormModel) { this.formDir = formDir; }
 
   get errorMessage() {
     var c = this.formDir.form.find(this.controlPath);
@@ -72,7 +72,7 @@ class ShowError {
 }
 
 
-@Component({selector: 'model-driven-forms', viewInjector: [FormBuilder]})
+@Component({selector: 'model-driven-forms', viewBindings: [FormBuilder]})
 @View({
   template: `
     <h1>Checkout Form (Model Driven)</h1>
@@ -129,7 +129,7 @@ class ShowError {
       <button type="submit" [disabled]="!f.form.valid">Submit</button>
     </form>
   `,
-  directives: [formDirectives, NgFor, ShowError]
+  directives: [FORM_DIRECTIVES, NgFor, ShowError]
 })
 class ModelDrivenForms {
   form;
@@ -155,6 +155,5 @@ class ModelDrivenForms {
 }
 
 export function main() {
-  reflector.reflectionCapabilities = new ReflectionCapabilities();
   bootstrap(ModelDrivenForms);
 }

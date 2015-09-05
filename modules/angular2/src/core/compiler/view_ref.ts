@@ -1,6 +1,6 @@
-import {isPresent} from 'angular2/src/facade/lang';
+import {isPresent} from 'angular2/src/core/facade/lang';
 import * as viewModule from './view';
-import {RenderViewRef, RenderFragmentRef} from 'angular2/src/render/api';
+import {RenderViewRef, RenderFragmentRef} from 'angular2/src/core/render/api';
 
 // This is a workaround for privacy in Dart as we don't have library parts
 export function internalView(viewRef: ViewRef): viewModule.AppView {
@@ -11,6 +11,8 @@ export function internalView(viewRef: ViewRef): viewModule.AppView {
 export function internalProtoView(protoViewRef: ProtoViewRef): viewModule.AppProtoView {
   return isPresent(protoViewRef) ? protoViewRef._protoView : null;
 }
+
+export interface HostViewRef {}
 
 /**
  * A reference to an Angular View.
@@ -53,33 +55,37 @@ export function internalProtoView(protoViewRef: ProtoViewRef): viewModule.AppPro
  * The outter/inner {@link ProtoViewRef}s are then assembled into views like so:
  *
  * ```
- * <!-- ViewRef: outter-0 -->
+ * <!-- ViewRef: outer-0 -->
  * Count: 2
  * <ul>
  *   <template view-container-ref></template>
  *   <!-- ViewRef: inner-1 --><li>first</li><!-- /ViewRef: inner-1 -->
  *   <!-- ViewRef: inner-2 --><li>second</li><!-- /ViewRef: inner-2 -->
  * </ul>
- * <!-- /ViewRef: outter-0 -->
+ * <!-- /ViewRef: outer-0 -->
  * ```
  */
-export class ViewRef {
+export class ViewRef implements HostViewRef {
+  /**
+   * @private
+   */
   constructor(public _view: viewModule.AppView) {}
 
   /**
-   * Return {@link RenderViewRef}
+   * Return `RenderViewRef`
    */
   get render(): RenderViewRef { return this._view.render; }
 
   /**
-   * Return {@link RenderFragmentRef}
+   * Return `RenderFragmentRef`
    */
   get renderFragment(): RenderFragmentRef { return this._view.renderFragment; }
 
   /**
-   * Set local variable for a view.
+   * Set local variable in a view.
    *
-   *
+   * - `contextName` - Name of the local variable in a view.
+   * - `value` - Value for the local variable in a view.
    */
   setLocal(contextName: string, value: any): void { this._view.setLocal(contextName, value); }
 }
@@ -88,9 +94,10 @@ export class ViewRef {
  * A reference to an Angular ProtoView.
  *
  * A ProtoView is a reference to a template for easy creation of views.
- * (See {@link AppViewManager#createViewInContainer} and {@link AppViewManager#createRootHostView}).
+ * (See {@link AppViewManager#createViewInContainer `AppViewManager#createViewInContainer`} and
+ * {@link AppViewManager#createRootHostView `AppViewManager#createRootHostView`}).
  *
- * A `ProtoView` is a foctary for creating `View`s.
+ * A `ProtoView` is a factory for creating `View`s.
  *
  * ## Example
  *

@@ -10,18 +10,26 @@ import {
   it,
   xit,
   TestComponentBuilder,
-  asNativeElements
 } from 'angular2/test_lib';
 
 
-import {Injectable, Optional} from 'angular2/di';
-import {QueryList} from 'angular2/core';
-import {Query, ViewQuery, Component, Directive, View} from 'angular2/annotations';
+import {
+  Component,
+  Directive,
+  Injectable,
+  NgIf,
+  NgFor,
+  Optional,
+  TemplateRef,
+  Query,
+  QueryList,
+  View,
+  ViewQuery
+} from 'angular2/core';
 
-import {NgIf, NgFor} from 'angular2/angular2';
-import {ListWrapper, iterableToList} from 'angular2/src/facade/collection';
+import {asNativeElements} from 'angular2/src/core/debug';
 
-import {BrowserDomAdapter} from 'angular2/src/dom/browser_adapter';
+import {BrowserDomAdapter} from 'angular2/src/core/dom/browser_adapter';
 
 export function main() {
   BrowserDomAdapter.makeCurrent();
@@ -103,6 +111,24 @@ export function main() {
                });
          }));
 
+      it('should be cleanly destroyed when a query crosses view boundaries',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template =
+               '<div text="1"></div>' +
+               '<needs-query text="2"><div *ng-if="shouldShow" [text]="\'3\'"></div></needs-query>' +
+               '<div text="4"></div>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((rtc) => {
+                 rtc.componentInstance.shouldShow = true;
+                 rtc.detectChanges();
+                 rtc.destroy();
+
+                 async.done();
+               });
+         }));
+
       it('should reflect moved directives',
          inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
            var template =
@@ -119,12 +145,29 @@ export function main() {
 
                  view.componentInstance.list = ['3d', '2d'];
                  view.detectChanges();
-                 view.detectChanges();
                  expect(asNativeElements(view.componentViewChildren)).toHaveText('2|3d|2d|');
 
                  async.done();
                });
          }));
+    });
+
+    describe('query for TemplateRef', () => {
+      it('should find TemplateRefs in the light and shadow dom',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-tpl><template var-x="light"></template></needs-tpl>';
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 view.detectChanges();
+                 var needsTpl: NeedsTpl = view.componentViewChildren[0].inject(NeedsTpl);
+                 expect(needsTpl.query.first.hasLocal('light')).toBe(true);
+                 expect(needsTpl.viewQuery.first.hasLocal('shadow')).toBe(true);
+
+                 async.done();
+               });
+         }));
+
     });
 
     describe("onChange", () => {
@@ -175,6 +218,34 @@ export function main() {
                  });
 
                  view.detectChanges();
+               });
+         }));
+
+      it('should correctly clean-up when destroyed together with the directives it is querying',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template =
+               '<needs-query #q *ng-if="shouldShow"><div text="foo"></div></needs-query>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 view.componentInstance.shouldShow = true;
+                 view.detectChanges();
+
+                 var q: NeedsQuery = view.componentViewChildren[1].getLocal('q');
+                 expect(q.query.length).toEqual(1);
+
+                 view.componentInstance.shouldShow = false;
+                 view.detectChanges();
+
+                 view.componentInstance.shouldShow = true;
+                 view.detectChanges();
+
+                 var q2: NeedsQuery = view.componentViewChildren[1].getLocal('q');
+
+                 expect(q2.query.length).toEqual(1);
+
+                 async.done();
                });
          }));
     });
@@ -272,6 +343,39 @@ export function main() {
                  async.done();
                });
          }));
+
+      it('should contain all the elements in the light dom even if they get projected',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-query-and-project #q>' +
+                          '<div text="hello"></div><div text="world"></div>' +
+                          '</needs-query-and-project>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 view.detectChanges();
+
+                 expect(asNativeElements(view.componentViewChildren)).toHaveText('hello|world|');
+
+                 async.done();
+               });
+         }));
+
+      it('should support querying the view by using a view query',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-view-query-by-var-binding #q></needs-view-query-by-var-binding>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 var q: NeedsViewQueryByLabel = view.componentViewChildren[0].getLocal("q");
+                 view.detectChanges();
+
+                 expect(q.query.first.nativeElement).toHaveText("text");
+
+                 async.done();
+               });
+         }));
     });
 
     describe("querying in the view", () => {
@@ -286,30 +390,13 @@ export function main() {
 
                  view.detectChanges();
 
-                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "2", "3"]);
-
-                 async.done();
-               });
-         }));
-
-      it('should query descendants in the view when the flag is used',
-         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
-           var template = '<needs-view-query-desc #q></needs-view-query-desc>';
-
-           tcb.overrideTemplate(MyComp, template)
-               .createAsync(MyComp)
-               .then((view) => {
-                 var q: NeedsViewQueryDesc = view.componentViewChildren[0].getLocal("q");
-
-                 view.detectChanges();
-
                  expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "2", "3", "4"]);
 
                  async.done();
                });
          }));
 
-      it('should include directive present on the host element',
+      it('should not include directive present on the host element',
          inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
            var template = '<needs-view-query #q text="self"></needs-view-query>';
 
@@ -320,7 +407,7 @@ export function main() {
 
                  view.detectChanges();
 
-                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["self", "1", "2", "3"]);
+                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "2", "3", "4"]);
 
                  async.done();
                });
@@ -341,6 +428,7 @@ export function main() {
 
                  q.show = true;
                  view.detectChanges();
+                 expect(q.query.length).toBe(1);
 
                  expect(q.query.first.text).toEqual("1");
 
@@ -348,26 +436,98 @@ export function main() {
                });
          }));
 
-      /* TODO(rado): fix and reenable.
+      it('should not be affected by other changes in the component',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-view-query-nested-if #q></needs-view-query-nested-if>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 var q: NeedsViewQueryNestedIf = view.componentViewChildren[0].getLocal("q");
+
+                 view.detectChanges();
+
+                 expect(q.query.length).toEqual(1);
+                 expect(q.query.first.text).toEqual("1");
+
+                 q.show = false;
+                 view.detectChanges();
+
+                 expect(q.query.length).toEqual(1);
+                 expect(q.query.first.text).toEqual("1");
+
+                 async.done();
+               });
+         }));
+
 
       it('should maintain directives in pre-order depth-first DOM order after dynamic insertion',
-        inject([TestComponentBuilder, AsyncTestCompleter], (tcb:TestComponentBuilder, async) => {
-          var template = '<needs-view-query-order #q text="self"></needs-view-query-order>';
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-view-query-order #q></needs-view-query-order>';
 
-          tcb.overrideTemplate(MyComp, template)
-            .createAsync(MyComp)
-            .then((view) => {
-              var q:NeedsViewQueryOrder = view.componentViewChildren[0].getLocal("q");
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 var q: NeedsViewQueryOrder = view.componentViewChildren[0].getLocal("q");
 
-              view.detectChanges();
+                 view.detectChanges();
 
-              expect(q.query.length).toBe(4);
-              expect(q.query.first.text).toEqual("1");
-              expect(q.query.first.text).toEqual("4");
+                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "2", "3", "4"]);
 
-              async.done();
-            });
-        }));*/
+                 q.list = ["-3", "2"];
+                 view.detectChanges();
+
+
+                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "-3", "2", "4"]);
+
+                 async.done();
+               });
+         }));
+
+      it('should maintain directives in pre-order depth-first DOM order after dynamic insertion',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-view-query-order-with-p #q></needs-view-query-order-with-p>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 var q: NeedsViewQueryOrderWithParent = view.componentViewChildren[0].getLocal("q");
+
+                 view.detectChanges();
+
+                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "2", "3", "4"]);
+
+                 q.list = ["-3", "2"];
+                 view.detectChanges();
+
+
+                 expect(q.query.map((d: TextDirective) => d.text)).toEqual(["1", "-3", "2", "4"]);
+
+                 async.done();
+               });
+         }));
+
+      it('should handle long ng-for cycles',
+         inject([TestComponentBuilder, AsyncTestCompleter], (tcb: TestComponentBuilder, async) => {
+           var template = '<needs-view-query-order #q></needs-view-query-order>';
+
+           tcb.overrideTemplate(MyComp, template)
+               .createAsync(MyComp)
+               .then((view) => {
+                 var q: NeedsViewQueryOrder = view.componentViewChildren[0].getLocal('q');
+
+                 // no significance to 50, just a reasonably large cycle.
+                 for (var i = 0; i < 50; i++) {
+                   var newString = i.toString();
+                   q.list = [newString];
+                   view.detectChanges();
+
+                   expect(q.query.map((d: TextDirective) => d.text)).toEqual(['1', newString, '4']);
+                 }
+
+                 async.done();
+               });
+         }));
     });
   });
 }
@@ -379,8 +539,17 @@ class TextDirective {
   constructor() {}
 }
 
+@Directive({selector: '[dir]'})
+@Injectable()
+class InertDirective {
+  constructor() {}
+}
+
 @Component({selector: 'needs-query'})
-@View({directives: [NgFor], template: '<div *ng-for="var dir of query">{{dir.text}}|</div>'})
+@View({
+  directives: [NgFor, TextDirective],
+  template: '<div text="ignoreme"></div><b *ng-for="var dir of query">{{dir.text}}|</b>'
+})
 @Injectable()
 class NeedsQuery {
   query: QueryList<TextDirective>;
@@ -407,6 +576,14 @@ class NeedsQueryByLabel {
   }
 }
 
+@Component({selector: 'needs-view-query-by-var-binding'})
+@View({directives: [], template: '<div #text-label>text</div>'})
+@Injectable()
+class NeedsViewQueryByLabel {
+  query: QueryList<any>;
+  constructor(@ViewQuery("textLabel") query: QueryList<any>) { this.query = query; }
+}
+
 @Component({selector: 'needs-query-by-var-bindings'})
 @View({directives: [], template: '<ng-content>'})
 @Injectable()
@@ -417,30 +594,27 @@ class NeedsQueryByTwoLabels {
   }
 }
 
-@Component({selector: 'needs-view-query'})
+@Component({selector: 'needs-query-and-project'})
 @View({
-  directives: [TextDirective],
-  template: '<div text="1"><div text="need descendants"></div></div>' +
-                '<div text="2"></div><div text="3"></div>'
+  directives: [NgFor],
+  template: '<div *ng-for="var dir of query">{{dir.text}}|</div><ng-content></ng-content>'
 })
 @Injectable()
-class NeedsViewQuery {
+class NeedsQueryAndProject {
   query: QueryList<TextDirective>;
-  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) { this.query = query; }
+  constructor(@Query(TextDirective) query: QueryList<TextDirective>) { this.query = query; }
 }
 
-@Component({selector: 'needs-view-query-desc'})
+@Component({selector: 'needs-view-query'})
 @View({
   directives: [TextDirective],
   template: '<div text="1"><div text="2"></div></div>' +
                 '<div text="3"></div><div text="4"></div>'
 })
 @Injectable()
-class NeedsViewQueryDesc {
+class NeedsViewQuery {
   query: QueryList<TextDirective>;
-  constructor(@ViewQuery(TextDirective, {descendants: true}) query: QueryList<TextDirective>) {
-    this.query = query;
-  }
+  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) { this.query = query; }
 }
 
 @Component({selector: 'needs-view-query-if'})
@@ -456,17 +630,65 @@ class NeedsViewQueryIf {
 }
 
 
+@Component({selector: 'needs-view-query-nested-if'})
+@View({
+  directives: [NgIf, InertDirective, TextDirective],
+  template: '<div text="1"><div *ng-if="show"><div dir></div></div></div>'
+})
+@Injectable()
+class NeedsViewQueryNestedIf {
+  show: boolean;
+  query: QueryList<TextDirective>;
+  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) {
+    this.query = query;
+    this.show = true;
+  }
+}
+
 @Component({selector: 'needs-view-query-order'})
 @View({
-  directives: [NgFor, TextDirective],
-  template: '<div text="1">' +
-                '<div *ng-for="var i of [\'2\', \'3\']" [text]="i"></div>' +
-                '<div text="4"'
+  directives: [NgFor, TextDirective, InertDirective],
+  template: '<div text="1"></div>' +
+                '<div *ng-for="var i of list" [text]="i"></div>' +
+                '<div text="4"></div>'
 })
 @Injectable()
 class NeedsViewQueryOrder {
   query: QueryList<TextDirective>;
-  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) { this.query = query; }
+  list: string[];
+  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) {
+    this.query = query;
+    this.list = ['2', '3'];
+  }
+}
+
+@Component({selector: 'needs-view-query-order-with-p'})
+@View({
+  directives: [NgFor, TextDirective, InertDirective],
+  template: '<div dir><div text="1"></div>' +
+                '<div *ng-for="var i of list" [text]="i"></div>' +
+                '<div text="4"></div></div>'
+})
+@Injectable()
+class NeedsViewQueryOrderWithParent {
+  query: QueryList<TextDirective>;
+  list: string[];
+  constructor(@ViewQuery(TextDirective) query: QueryList<TextDirective>) {
+    this.query = query;
+    this.list = ['2', '3'];
+  }
+}
+
+@Component({selector: 'needs-tpl'})
+@View({template: '<template var-x="shadow"></template>'})
+class NeedsTpl {
+  viewQuery: QueryList<TemplateRef>;
+  query: QueryList<TemplateRef>;
+  constructor(@ViewQuery(TemplateRef) viewQuery: QueryList<TemplateRef>,
+              @Query(TemplateRef) query: QueryList<TemplateRef>) {
+    this.viewQuery = viewQuery;
+    this.query = query;
+  }
 }
 
 @Component({selector: 'my-comp'})
@@ -476,11 +698,16 @@ class NeedsViewQueryOrder {
     NeedsQueryDesc,
     NeedsQueryByLabel,
     NeedsQueryByTwoLabels,
+    NeedsQueryAndProject,
     NeedsViewQuery,
-    NeedsViewQueryDesc,
     NeedsViewQueryIf,
+    NeedsViewQueryNestedIf,
     NeedsViewQueryOrder,
+    NeedsViewQueryByLabel,
+    NeedsViewQueryOrderWithParent,
+    NeedsTpl,
     TextDirective,
+    InertDirective,
     NgIf,
     NgFor
   ]

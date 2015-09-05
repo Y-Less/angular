@@ -1,30 +1,38 @@
-import {BrowserDomAdapter} from 'angular2/src/dom/browser_adapter';
-import {PromiseWrapper} from 'angular2/src/facade/async';
-import {List, ListWrapper, Map, MapWrapper} from 'angular2/src/facade/collection';
-import {DateWrapper, Type, print} from 'angular2/src/facade/lang';
-import {
-  NativeShadowDomStrategy
-} from 'angular2/src/render/dom/shadow_dom/native_shadow_dom_strategy';
+import {BrowserDomAdapter} from 'angular2/src/core/dom/browser_adapter';
+import {PromiseWrapper} from 'angular2/src/core/facade/async';
+import {ListWrapper, Map, MapWrapper} from 'angular2/src/core/facade/collection';
+import {DateWrapper, Type, print} from 'angular2/src/core/facade/lang';
 
-import {Parser, Lexer, DynamicChangeDetection} from 'angular2/change_detection';
+import {
+  Parser,
+  Lexer,
+  DynamicChangeDetection
+} from 'angular2/src/core/change_detection/change_detection';
 
 import {Compiler, CompilerCache} from 'angular2/src/core/compiler/compiler';
 import {DirectiveResolver} from 'angular2/src/core/compiler/directive_resolver';
+import {PipeResolver} from 'angular2/src/core/compiler/pipe_resolver';
 
-import * as viewModule from 'angular2/src/core/annotations_impl/view';
-import {Component, Directive, View} from 'angular2/angular2';
-import {ViewLoader} from 'angular2/src/render/dom/compiler/view_loader';
+import {Component, Directive, View, ViewMetadata} from 'angular2/src/core/metadata';
 import {ViewResolver} from 'angular2/src/core/compiler/view_resolver';
-import {UrlResolver} from 'angular2/src/services/url_resolver';
-import {AppRootUrl} from 'angular2/src/services/app_root_url';
+import {UrlResolver} from 'angular2/src/core/services/url_resolver';
+import {AppRootUrl} from 'angular2/src/core/services/app_root_url';
 import {ComponentUrlMapper} from 'angular2/src/core/compiler/component_url_mapper';
 
-import {reflector} from 'angular2/src/reflection/reflection';
-import {ReflectionCapabilities} from 'angular2/src/reflection/reflection_capabilities';
+import {reflector} from 'angular2/src/core/reflection/reflection';
+import {ReflectionCapabilities} from 'angular2/src/core/reflection/reflection_capabilities';
 import {getIntParameter, bindAction} from 'angular2/src/test_lib/benchmark_util';
 
 import {ProtoViewFactory} from 'angular2/src/core/compiler/proto_view_factory';
-import * as rc from 'angular2/src/render/dom/compiler/compiler';
+import {
+  ViewLoader,
+  DefaultDomCompiler,
+  SharedStylesHost,
+  TemplateCloner
+} from 'angular2/src/core/render/render';
+import {
+  DomElementSchemaRegistry
+} from 'angular2/src/core/render/dom/schema/dom_element_schema_registry';
 
 export function main() {
   BrowserDomAdapter.makeCurrent();
@@ -32,16 +40,18 @@ export function main() {
 
   reflector.reflectionCapabilities = new ReflectionCapabilities();
   var reader = new DirectiveResolver();
+  var pipeResolver = new PipeResolver();
   var cache = new CompilerCache();
   var viewResolver = new MultipleViewResolver(
       count, [BenchmarkComponentNoBindings, BenchmarkComponentWithBindings]);
   var urlResolver = new UrlResolver();
-  var shadowDomStrategy = new NativeShadowDomStrategy();
-  var renderCompiler = new rc.DefaultDomCompiler(new Parser(new Lexer()), shadowDomStrategy,
-                                                 new ViewLoader(null, null, null));
-  var compiler = new Compiler(reader, cache, viewResolver, new ComponentUrlMapper(), urlResolver,
-                              renderCompiler, new ProtoViewFactory(new DynamicChangeDetection()),
-                              new FakeAppRootUrl());
+  var appRootUrl = new AppRootUrl("");
+  var renderCompiler = new DefaultDomCompiler(
+      new DomElementSchemaRegistry(), new TemplateCloner(-1), new Parser(new Lexer()),
+      new ViewLoader(null, null, null), new SharedStylesHost(), 'a');
+  var compiler = new Compiler(reader, pipeResolver, [], cache, viewResolver,
+                              new ComponentUrlMapper(), urlResolver, renderCompiler,
+                              new ProtoViewFactory(new DynamicChangeDetection()), appRootUrl);
 
   function measureWrapper(func, desc) {
     return function() {
@@ -97,7 +107,7 @@ class MultipleViewResolver extends ViewResolver {
   _multiple: number;
   _cache: Map<any, any>;
 
-  constructor(multiple: number, components: List<Type>) {
+  constructor(multiple: number, components: Type[]) {
     super();
     this._multiple = multiple;
     this._cache = new Map();
@@ -113,11 +123,10 @@ class MultipleViewResolver extends ViewResolver {
     this._cache.set(component, ListWrapper.join(multiplier, ''));
   }
 
-  resolve(component: Type): viewModule.View {
+  resolve(component: Type): ViewMetadata {
     var view = super.resolve(component);
-    var myView = new viewModule.View(
+    return new ViewMetadata(
         {template:<string>this._cache.get(component), directives: view.directives});
-    return myView;
   }
 }
 
@@ -160,8 +169,4 @@ class BenchmarkComponentNoBindings {
 </div>`
 })
 class BenchmarkComponentWithBindings {
-}
-
-class FakeAppRootUrl extends AppRootUrl {
-  get value() { return ''; }
 }

@@ -10,38 +10,22 @@ main() {
       metadata(type, annotation) =>
           DirectiveBinding.createFromType(type, annotation).metadata;
 
-      describe("onChange", () {
-        it("should be true when the directive implements OnChange", () {
-          expect(metadata(
-                  DirectiveImplementingOnChange, new Directive()).callOnChange)
-              .toBe(true);
-        });
-
-        it("should be true when the lifecycle includes onChange", () {
-          expect(metadata(DirectiveNoHooks,
-              new Directive(lifecycle: [LifecycleEvent.onChange])).callOnChange).toBe(true);
+      describe("onChanges", () {
+        it("should be true when the directive implements OnChanges", () {
+          expect(metadata(DirectiveImplementingOnChanges, new Directive())
+              .callOnChanges).toBe(true);
         });
 
         it("should be false otherwise", () {
-          expect(metadata(DirectiveNoHooks, new Directive()).callOnChange)
+          expect(metadata(DirectiveNoHooks, new Directive()).callOnChanges)
               .toBe(false);
-        });
-
-        it("should be false when empty lifecycle", () {
-          expect(metadata(DirectiveImplementingOnChange,
-              new Directive(lifecycle: [])).callOnChange).toBe(false);
         });
       });
 
       describe("onDestroy", () {
         it("should be true when the directive implements OnDestroy", () {
-          expect(metadata(DirectiveImplementingOnDestroy,
-              new Directive()).callOnDestroy).toBe(true);
-        });
-
-        it("should be true when the lifecycle includes onDestroy", () {
-          expect(metadata(DirectiveNoHooks,
-              new Directive(lifecycle: [LifecycleEvent.onDestroy])).callOnDestroy).toBe(true);
+          expect(metadata(DirectiveImplementingOnDestroy, new Directive())
+              .callOnDestroy).toBe(true);
         });
 
         it("should be false otherwise", () {
@@ -50,34 +34,22 @@ main() {
         });
       });
 
-      describe("onCheck", () {
-        it("should be true when the directive implements OnCheck", () {
-          expect(metadata(
-                  DirectiveImplementingOnCheck, new Directive()).callOnCheck)
-              .toBe(true);
-        });
-
-        it("should be true when the lifecycle includes onCheck", () {
-          expect(metadata(DirectiveNoHooks,
-              new Directive(lifecycle: [LifecycleEvent.onCheck])).callOnCheck).toBe(true);
+      describe("doCheck", () {
+        it("should be true when the directive implements DoCheck", () {
+          expect(metadata(DirectiveImplementingOnCheck, new Directive())
+              .callDoCheck).toBe(true);
         });
 
         it("should be false otherwise", () {
-          expect(metadata(DirectiveNoHooks, new Directive()).callOnCheck)
+          expect(metadata(DirectiveNoHooks, new Directive()).callDoCheck)
               .toBe(false);
         });
       });
 
       describe("onInit", () {
         it("should be true when the directive implements OnInit", () {
-          expect(metadata(
-                  DirectiveImplementingOnInit, new Directive()).callOnInit)
-              .toBe(true);
-        });
-
-        it("should be true when the lifecycle includes onInit", () {
-          expect(metadata(DirectiveNoHooks,
-              new Directive(lifecycle: [LifecycleEvent.onInit])).callOnInit).toBe(true);
+          expect(metadata(DirectiveImplementingOnInit, new Directive())
+              .callOnInit).toBe(true);
         });
 
         it("should be false otherwise", () {
@@ -86,21 +58,55 @@ main() {
         });
       });
 
-      describe("onAllChangesDone", () {
-        it("should be true when the directive implements OnAllChangesDone", () {
-          expect(metadata(DirectiveImplementingOnAllChangesDone,
-              new Directive()).callOnAllChangesDone).toBe(true);
-        });
-
-        it("should be true when the lifecycle includes onAllChangesDone", () {
-          expect(metadata(DirectiveNoHooks, new Directive(
-              lifecycle: [LifecycleEvent.onAllChangesDone])).callOnAllChangesDone).toBe(true);
+      describe("afterContentInit", () {
+        it("should be true when the directive implements AfterContentInit", () {
+          expect(
+              metadata(DirectiveImplementingAfterContentInit, new Directive())
+                  .callAfterContentInit).toBe(true);
         });
 
         it("should be false otherwise", () {
-          expect(metadata(
-                  DirectiveNoHooks, new Directive()).callOnAllChangesDone)
-              .toBe(false);
+          expect(metadata(DirectiveNoHooks, new Directive())
+              .callAfterContentInit).toBe(false);
+        });
+      });
+
+      describe("afterContentChecked", () {
+        it("should be true when the directive implements AfterContentChecked", () {
+          expect(
+              metadata(DirectiveImplementingAfterContentChecked, new Directive())
+                  .callAfterContentChecked).toBe(true);
+        });
+
+        it("should be false otherwise", () {
+          expect(metadata(DirectiveNoHooks, new Directive())
+              .callAfterContentChecked).toBe(false);
+        });
+      });
+
+      describe("afterViewInit", () {
+        it("should be true when the directive implements AfterViewInit", () {
+          expect(
+              metadata(DirectiveImplementingAfterViewInit, new Directive())
+                  .callAfterViewInit).toBe(true);
+        });
+
+        it("should be false otherwise", () {
+          expect(metadata(DirectiveNoHooks, new Directive())
+              .callAfterViewInit).toBe(false);
+        });
+      });
+
+      describe("afterViewChecked", () {
+        it("should be true when the directive implements AfterViewChecked", () {
+          expect(
+              metadata(DirectiveImplementingAfterViewChecked, new Directive())
+                  .callAfterViewChecked).toBe(true);
+        });
+
+        it("should be false otherwise", () {
+          expect(metadata(DirectiveNoHooks, new Directive())
+              .callAfterViewChecked).toBe(false);
         });
       });
     });
@@ -109,12 +115,12 @@ main() {
 
 class DirectiveNoHooks {}
 
-class DirectiveImplementingOnChange implements OnChange {
-  onChange(_) {}
+class DirectiveImplementingOnChanges implements OnChanges {
+  onChanges(_) {}
 }
 
-class DirectiveImplementingOnCheck implements OnCheck {
-  onCheck() {}
+class DirectiveImplementingOnCheck implements DoCheck {
+  doCheck() {}
 }
 
 class DirectiveImplementingOnInit implements OnInit {
@@ -125,6 +131,18 @@ class DirectiveImplementingOnDestroy implements OnDestroy {
   onDestroy() {}
 }
 
-class DirectiveImplementingOnAllChangesDone implements OnAllChangesDone {
-  onAllChangesDone() {}
+class DirectiveImplementingAfterContentInit implements AfterContentInit {
+  afterContentInit() {}
+}
+
+class DirectiveImplementingAfterContentChecked implements AfterContentChecked {
+  afterContentChecked() {}
+}
+
+class DirectiveImplementingAfterViewInit implements AfterViewInit {
+  afterViewInit() {}
+}
+
+class DirectiveImplementingAfterViewChecked implements AfterViewChecked {
+  afterViewChecked() {}
 }

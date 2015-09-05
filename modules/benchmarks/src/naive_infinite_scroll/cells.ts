@@ -1,15 +1,15 @@
-import {List, ListWrapper, Map} from 'angular2/src/facade/collection';
+import {ListWrapper, Map} from 'angular2/src/core/facade/collection';
 import {Company, Opportunity, Offering, Account, CustomDate, STATUS_LIST} from './common';
-import {NgFor} from 'angular2/directives';
+import {NgFor} from 'angular2/core';
 
 import {Component, Directive, View} from 'angular2/angular2';
 
 export class HasStyle {
-  cellWidth: int;
+  cellWidth: number;
 
   constructor() {}
 
-  set width(w: int) { this.cellWidth = w; }
+  set width(w: number) { this.cellWidth = w; }
 }
 
 @Component({selector: 'company-name', properties: ['width: cell-width', 'company']})
@@ -52,7 +52,7 @@ export class Stage {
 })
 export class StageButtonsComponent extends HasStyle {
   _offering: Offering;
-  stages: List<Stage>;
+  stages: Stage[];
 
   get offering(): Offering { return this._offering; }
 

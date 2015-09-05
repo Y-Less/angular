@@ -1,21 +1,22 @@
-import {reflector} from 'angular2/src/reflection/reflection';
-import {isPresent} from 'angular2/src/facade/lang';
+import {reflector} from 'angular2/src/core/reflection/reflection';
+import {isPresent} from 'angular2/src/core/facade/lang';
 import {getIntParameter, bindAction, microBenchmark} from 'angular2/src/test_lib/benchmark_util';
-import {BrowserDomAdapter} from 'angular2/src/dom/browser_adapter';
+import {BrowserDomAdapter} from 'angular2/src/core/dom/browser_adapter';
 
 import {
   Lexer,
   Parser,
   ChangeDispatcher,
   ChangeDetection,
+  DebugContext,
   DynamicChangeDetection,
   JitChangeDetection,
   ChangeDetectorDefinition,
+  ChangeDetectorGenConfig,
   BindingRecord,
   DirectiveRecord,
-  DirectiveIndex,
-  DEFAULT
-} from 'angular2/change_detection';
+  DirectiveIndex
+} from 'angular2/src/core/change_detection/change_detection';
 
 
 // ---- SHARED
@@ -248,8 +249,9 @@ function setUpChangeDetection(changeDetection: ChangeDetection, iterations, obje
   var dispatcher = new DummyDispatcher();
   var parser = new Parser(new Lexer());
 
-  var parentProto = changeDetection.createProtoChangeDetector(
-      new ChangeDetectorDefinition('parent', null, [], [], []));
+  var genConfig = new ChangeDetectorGenConfig(false, false, false);
+  var parentProto = changeDetection.getProtoChangeDetector(
+      "id", new ChangeDetectorDefinition('parent', null, [], [], [], [], genConfig));
   var parentCd = parentProto.instantiate(dispatcher);
 
   var directiveRecord = new DirectiveRecord({directiveIndex: new DirectiveIndex(0, 0)});
@@ -276,8 +278,9 @@ function setUpChangeDetection(changeDetection: ChangeDetection, iterations, obje
                                      reflector.setter("field9"), directiveRecord)
   ];
 
-  var proto = changeDetection.createProtoChangeDetector(
-      new ChangeDetectorDefinition("proto", null, [], bindings, [directiveRecord]));
+  var proto = changeDetection.getProtoChangeDetector(
+      "id",
+      new ChangeDetectorDefinition("proto", null, [], bindings, [], [directiveRecord], genConfig));
 
   var targetObj = new Obj();
   parentCd.hydrate(object, null, new FakeDirectives(targetObj), null);
@@ -380,6 +383,11 @@ class FakeDirectives {
 }
 
 class DummyDispatcher implements ChangeDispatcher {
-  notifyOnBinding(bindingRecord, newValue) { throw "Should not be used"; }
-  notifyOnAllChangesDone() {}
+  getDebugContext(elementIndex: number, directiveIndex: DirectiveIndex): DebugContext {
+    throw "getDebugContext not implemented.";
+  }
+  notifyOnBinding(bindingTarget, newValue) { throw "Should not be used"; }
+  logBindingUpdate(bindingTarget, newValue) { throw "Should not be used"; }
+  notifyAfterContentChecked() {}
+  notifyAfterViewChecked() {}
 }

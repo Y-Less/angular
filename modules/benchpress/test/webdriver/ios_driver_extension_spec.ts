@@ -11,8 +11,8 @@ import {
   xit,
 } from 'angular2/test_lib';
 
-import {PromiseWrapper} from 'angular2/src/facade/async';
-import {Json, isBlank, isPresent} from 'angular2/src/facade/lang';
+import {PromiseWrapper} from 'angular2/src/core/facade/async';
+import {Json, isBlank, isPresent} from 'angular2/src/core/facade/lang';
 
 import {
   WebDriverExtension,
@@ -192,7 +192,7 @@ function internalScriptRecord(startTime, endTime) {
 }
 
 class MockDriverAdapter extends WebDriverAdapter {
-  constructor(private _log: List<any>, private _perfRecords: List<any>) { super(); }
+  constructor(private _log: any[], private _perfRecords: any[]) { super(); }
 
   executeScript(script) {
     this._log.push(['executeScript', script]);

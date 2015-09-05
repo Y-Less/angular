@@ -1,8 +1,14 @@
-import {Injectable} from 'angular2/di';
+import {Injectable} from 'angular2/src/core/di';
 
-import {List, ListWrapper, MapWrapper} from 'angular2/src/facade/collection';
-import {isPresent, isBlank, BaseException} from 'angular2/src/facade/lang';
-import {reflector} from 'angular2/src/reflection/reflection';
+import {ListWrapper, MapWrapper} from 'angular2/src/core/facade/collection';
+import {
+  StringWrapper,
+  isPresent,
+  isBlank,
+  BaseException,
+  assertionsEnabled
+} from 'angular2/src/core/facade/lang';
+import {reflector} from 'angular2/src/core/reflection/reflection';
 
 import {
   ChangeDetection,
@@ -10,22 +16,67 @@ import {
   BindingRecord,
   DirectiveRecord,
   ProtoChangeDetector,
-  DEFAULT,
+  ChangeDetectionStrategy,
   ChangeDetectorDefinition,
+  ChangeDetectorGenConfig,
   ASTWithSource
-} from 'angular2/change_detection';
+} from 'angular2/src/core/change_detection/change_detection';
 
-import * as renderApi from 'angular2/src/render/api';
+import {PipeBinding} from 'angular2/src/core/pipes/pipe_binding';
+import {ProtoPipes} from 'angular2/src/core/pipes/pipes';
+
+import {
+  RenderDirectiveMetadata,
+  RenderElementBinder,
+  PropertyBindingType,
+  DirectiveBinder,
+  ProtoViewDto,
+  ViewType
+} from 'angular2/src/core/render/api';
 import {AppProtoView} from './view';
 import {ElementBinder} from './element_binder';
 import {ProtoElementInjector, DirectiveBinding} from './element_injector';
 
-class BindingRecordsCreator {
+export class BindingRecordsCreator {
   _directiveRecordsMap: Map<number, DirectiveRecord> = new Map();
 
-  getBindingRecords(textBindings: List<ASTWithSource>,
-                    elementBinders: List<renderApi.ElementBinder>,
-                    allDirectiveMetadatas: List<renderApi.DirectiveMetadata>): List<BindingRecord> {
+  getEventBindingRecords(elementBinders: RenderElementBinder[],
+                         allDirectiveMetadatas: RenderDirectiveMetadata[]): BindingRecord[] {
+    var res = [];
+    for (var boundElementIndex = 0; boundElementIndex < elementBinders.length;
+         boundElementIndex++) {
+      var renderElementBinder = elementBinders[boundElementIndex];
+
+      this._createTemplateEventRecords(res, renderElementBinder, boundElementIndex);
+      this._createHostEventRecords(res, renderElementBinder, allDirectiveMetadatas,
+                                   boundElementIndex);
+    }
+    return res;
+  }
+
+  private _createTemplateEventRecords(res: BindingRecord[],
+                                      renderElementBinder: RenderElementBinder,
+                                      boundElementIndex: number): void {
+    renderElementBinder.eventBindings.forEach(eb => {
+      res.push(BindingRecord.createForEvent(eb.source, eb.fullName, boundElementIndex));
+    });
+  }
+
+  private _createHostEventRecords(res: BindingRecord[], renderElementBinder: RenderElementBinder,
+                                  allDirectiveMetadatas: RenderDirectiveMetadata[],
+                                  boundElementIndex: number): void {
+    for (var i = 0; i < renderElementBinder.directives.length; ++i) {
+      var dir = renderElementBinder.directives[i];
+      var directiveMetadata = allDirectiveMetadatas[dir.directiveIndex];
+      var dirRecord = this._getDirectiveRecord(boundElementIndex, i, directiveMetadata);
+      dir.eventBindings.forEach(heb => {
+        res.push(BindingRecord.createForHostEvent(heb.source, heb.fullName, dirRecord));
+      });
+    }
+  }
+
+  getPropertyBindingRecords(textBindings: ASTWithSource[], elementBinders: RenderElementBinder[],
+                            allDirectiveMetadatas: RenderDirectiveMetadata[]): BindingRecord[] {
     var bindings = [];
 
     this._createTextNodeRecords(bindings, textBindings);
@@ -40,9 +91,8 @@ class BindingRecordsCreator {
     return bindings;
   }
 
-  getDirectiveRecords(elementBinders: List<renderApi.ElementBinder>,
-                      allDirectiveMetadatas:
-                          List<renderApi.DirectiveMetadata>): List<DirectiveRecord> {
+  getDirectiveRecords(elementBinders: RenderElementBinder[],
+                      allDirectiveMetadatas: RenderDirectiveMetadata[]): DirectiveRecord[] {
     var directiveRecords = [];
 
     for (var elementIndex = 0; elementIndex < elementBinders.length; ++elementIndex) {
@@ -56,34 +106,34 @@ class BindingRecordsCreator {
     return directiveRecords;
   }
 
-  _createTextNodeRecords(bindings: List<BindingRecord>, textBindings: List<ASTWithSource>) {
+  _createTextNodeRecords(bindings: BindingRecord[], textBindings: ASTWithSource[]) {
     for (var i = 0; i < textBindings.length; i++) {
       bindings.push(BindingRecord.createForTextNode(textBindings[i], i));
     }
   }
 
-  _createElementPropertyRecords(bindings: List<BindingRecord>, boundElementIndex: number,
-                                renderElementBinder: renderApi.ElementBinder) {
+  _createElementPropertyRecords(bindings: BindingRecord[], boundElementIndex: number,
+                                renderElementBinder: RenderElementBinder) {
     ListWrapper.forEach(renderElementBinder.propertyBindings, (binding) => {
-      if (binding.type === renderApi.PropertyBindingType.PROPERTY) {
+      if (binding.type === PropertyBindingType.PROPERTY) {
         bindings.push(BindingRecord.createForElementProperty(binding.astWithSource,
                                                              boundElementIndex, binding.property));
-      } else if (binding.type === renderApi.PropertyBindingType.ATTRIBUTE) {
+      } else if (binding.type === PropertyBindingType.ATTRIBUTE) {
         bindings.push(BindingRecord.createForElementAttribute(binding.astWithSource,
                                                               boundElementIndex, binding.property));
-      } else if (binding.type === renderApi.PropertyBindingType.CLASS) {
+      } else if (binding.type === PropertyBindingType.CLASS) {
         bindings.push(BindingRecord.createForElementClass(binding.astWithSource, boundElementIndex,
                                                           binding.property));
-      } else if (binding.type === renderApi.PropertyBindingType.STYLE) {
+      } else if (binding.type === PropertyBindingType.STYLE) {
         bindings.push(BindingRecord.createForElementStyle(binding.astWithSource, boundElementIndex,
                                                           binding.property, binding.unit));
       }
     });
   }
 
-  _createDirectiveRecords(bindings: List<BindingRecord>, boundElementIndex: number,
-                          directiveBinders: List<renderApi.DirectiveBinder>,
-                          allDirectiveMetadatas: List<renderApi.DirectiveMetadata>) {
+  _createDirectiveRecords(bindings: BindingRecord[], boundElementIndex: number,
+                          directiveBinders: DirectiveBinder[],
+                          allDirectiveMetadatas: RenderDirectiveMetadata[]) {
     for (var i = 0; i < directiveBinders.length; i++) {
       var directiveBinder = directiveBinders[i];
       var directiveMetadata = allDirectiveMetadatas[directiveBinder.directiveIndex];
@@ -98,14 +148,14 @@ class BindingRecordsCreator {
             BindingRecord.createForDirective(astWithSource, propertyName, setter, directiveRecord));
       });
 
-      if (directiveRecord.callOnChange) {
-        bindings.push(BindingRecord.createDirectiveOnChange(directiveRecord));
+      if (directiveRecord.callOnChanges) {
+        bindings.push(BindingRecord.createDirectiveOnChanges(directiveRecord));
       }
       if (directiveRecord.callOnInit) {
         bindings.push(BindingRecord.createDirectiveOnInit(directiveRecord));
       }
-      if (directiveRecord.callOnCheck) {
-        bindings.push(BindingRecord.createDirectiveOnCheck(directiveRecord));
+      if (directiveRecord.callDoCheck) {
+        bindings.push(BindingRecord.createDirectiveDoCheck(directiveRecord));
       }
     }
 
@@ -114,16 +164,16 @@ class BindingRecordsCreator {
       // host properties
       ListWrapper.forEach(directiveBinder.hostPropertyBindings, (binding) => {
         var dirIndex = new DirectiveIndex(boundElementIndex, i);
-        if (binding.type === renderApi.PropertyBindingType.PROPERTY) {
+        if (binding.type === PropertyBindingType.PROPERTY) {
           bindings.push(BindingRecord.createForHostProperty(dirIndex, binding.astWithSource,
                                                             binding.property));
-        } else if (binding.type === renderApi.PropertyBindingType.ATTRIBUTE) {
+        } else if (binding.type === PropertyBindingType.ATTRIBUTE) {
           bindings.push(BindingRecord.createForHostAttribute(dirIndex, binding.astWithSource,
                                                              binding.property));
-        } else if (binding.type === renderApi.PropertyBindingType.CLASS) {
+        } else if (binding.type === PropertyBindingType.CLASS) {
           bindings.push(
               BindingRecord.createForHostClass(dirIndex, binding.astWithSource, binding.property));
-        } else if (binding.type === renderApi.PropertyBindingType.STYLE) {
+        } else if (binding.type === PropertyBindingType.STYLE) {
           bindings.push(BindingRecord.createForHostStyle(dirIndex, binding.astWithSource,
                                                          binding.property, binding.unit));
         }
@@ -132,16 +182,19 @@ class BindingRecordsCreator {
   }
 
   _getDirectiveRecord(boundElementIndex: number, directiveIndex: number,
-                      directiveMetadata: renderApi.DirectiveMetadata): DirectiveRecord {
+                      directiveMetadata: RenderDirectiveMetadata): DirectiveRecord {
     var id = boundElementIndex * 100 + directiveIndex;
 
     if (!this._directiveRecordsMap.has(id)) {
       this._directiveRecordsMap.set(
           id, new DirectiveRecord({
             directiveIndex: new DirectiveIndex(boundElementIndex, directiveIndex),
-            callOnAllChangesDone: directiveMetadata.callOnAllChangesDone,
-            callOnChange: directiveMetadata.callOnChange,
-            callOnCheck: directiveMetadata.callOnCheck,
+            callAfterContentInit: directiveMetadata.callAfterContentInit,
+            callAfterContentChecked: directiveMetadata.callAfterContentChecked,
+            callAfterViewInit: directiveMetadata.callAfterViewInit,
+            callAfterViewChecked: directiveMetadata.callAfterViewChecked,
+            callOnChanges: directiveMetadata.callOnChanges,
+            callDoCheck: directiveMetadata.callDoCheck,
             callOnInit: directiveMetadata.callOnInit,
             changeDetection: directiveMetadata.changeDetection
           }));
@@ -158,33 +211,48 @@ export class ProtoViewFactory {
    */
   constructor(public _changeDetection: ChangeDetection) {}
 
-  createAppProtoViews(hostComponentBinding: DirectiveBinding,
-                      rootRenderProtoView: renderApi.ProtoViewDto,
-                      allDirectives: List<DirectiveBinding>): AppProtoView {
+  createAppProtoViews(hostComponentBinding: DirectiveBinding, rootRenderProtoView: ProtoViewDto,
+                      allDirectives: DirectiveBinding[], pipes: PipeBinding[]): AppProtoView[] {
     var allRenderDirectiveMetadata =
         ListWrapper.map(allDirectives, directiveBinding => directiveBinding.metadata);
     var nestedPvsWithIndex = _collectNestedProtoViews(rootRenderProtoView);
     var nestedPvVariableBindings = _collectNestedProtoViewsVariableBindings(nestedPvsWithIndex);
     var nestedPvVariableNames = _collectNestedProtoViewsVariableNames(nestedPvsWithIndex);
 
-    var changeDetectorDefs =
-        _getChangeDetectorDefinitions(hostComponentBinding.metadata, nestedPvsWithIndex,
+    var protoChangeDetectors =
+        this._getProtoChangeDetectors(hostComponentBinding, nestedPvsWithIndex,
                                       nestedPvVariableNames, allRenderDirectiveMetadata);
-    var protoChangeDetectors = ListWrapper.map(
-        changeDetectorDefs,
-        changeDetectorDef => this._changeDetection.createProtoChangeDetector(changeDetectorDef));
+
     var appProtoViews = ListWrapper.createFixedSize(nestedPvsWithIndex.length);
     ListWrapper.forEach(nestedPvsWithIndex, (pvWithIndex: RenderProtoViewWithIndex) => {
       var appProtoView =
           _createAppProtoView(pvWithIndex.renderProtoView, protoChangeDetectors[pvWithIndex.index],
-                              nestedPvVariableBindings[pvWithIndex.index], allDirectives);
+                              nestedPvVariableBindings[pvWithIndex.index], allDirectives, pipes);
       if (isPresent(pvWithIndex.parentIndex)) {
         var parentView = appProtoViews[pvWithIndex.parentIndex];
         parentView.elementBinders[pvWithIndex.boundElementIndex].nestedProtoView = appProtoView;
       }
       appProtoViews[pvWithIndex.index] = appProtoView;
     });
-    return appProtoViews[0];
+    return appProtoViews;
+  }
+
+  private _getProtoChangeDetectors(hostComponentBinding: DirectiveBinding,
+                                   nestedPvsWithIndex: RenderProtoViewWithIndex[],
+                                   nestedPvVariableNames: string[][],
+                                   allRenderDirectiveMetadata: any[]): ProtoChangeDetector[] {
+    if (this._changeDetection.generateDetectors) {
+      var changeDetectorDefs = _getChangeDetectorDefinitions(
+          hostComponentBinding.metadata, nestedPvsWithIndex, nestedPvVariableNames,
+          allRenderDirectiveMetadata, this._changeDetection.genConfig);
+      return changeDetectorDefs.map(changeDetectorDef =>
+                                        this._changeDetection.getProtoChangeDetector(
+                                            changeDetectorDef.id, changeDetectorDef));
+    } else {
+      var changeDetectorIds =
+          _getChangeDetectorDefinitionIds(hostComponentBinding.metadata, nestedPvsWithIndex);
+      return changeDetectorIds.map(id => this._changeDetection.getProtoChangeDetector(id, null));
+    }
   }
 }
 
@@ -193,17 +261,19 @@ export class ProtoViewFactory {
  * for the given ProtoView and all nested ProtoViews.
  */
 export function getChangeDetectorDefinitions(
-    hostComponentMetadata: renderApi.DirectiveMetadata, rootRenderProtoView: renderApi.ProtoViewDto,
-    allRenderDirectiveMetadata: List<renderApi.DirectiveMetadata>): List<ChangeDetectorDefinition> {
+    hostComponentMetadata: RenderDirectiveMetadata, rootRenderProtoView: ProtoViewDto,
+    allRenderDirectiveMetadata: RenderDirectiveMetadata[], genConfig: ChangeDetectorGenConfig):
+    ChangeDetectorDefinition[] {
   var nestedPvsWithIndex = _collectNestedProtoViews(rootRenderProtoView);
   var nestedPvVariableNames = _collectNestedProtoViewsVariableNames(nestedPvsWithIndex);
   return _getChangeDetectorDefinitions(hostComponentMetadata, nestedPvsWithIndex,
-                                       nestedPvVariableNames, allRenderDirectiveMetadata);
+                                       nestedPvVariableNames, allRenderDirectiveMetadata,
+                                       genConfig);
 }
 
 function _collectNestedProtoViews(
-    renderProtoView: renderApi.ProtoViewDto, parentIndex: number = null, boundElementIndex = null,
-    result: List<RenderProtoViewWithIndex> = null): List<RenderProtoViewWithIndex> {
+    renderProtoView: ProtoViewDto, parentIndex: number = null, boundElementIndex = null,
+    result: RenderProtoViewWithIndex[] = null): RenderProtoViewWithIndex[] {
   if (isBlank(result)) {
     result = [];
   }
@@ -223,48 +293,65 @@ function _collectNestedProtoViews(
 }
 
 function _getChangeDetectorDefinitions(
-    hostComponentMetadata: renderApi.DirectiveMetadata,
-    nestedPvsWithIndex: List<RenderProtoViewWithIndex>, nestedPvVariableNames: List<List<string>>,
-    allRenderDirectiveMetadata: List<renderApi.DirectiveMetadata>): List<ChangeDetectorDefinition> {
+    hostComponentMetadata: RenderDirectiveMetadata, nestedPvsWithIndex: RenderProtoViewWithIndex[],
+    nestedPvVariableNames: string[][], allRenderDirectiveMetadata: RenderDirectiveMetadata[],
+    genConfig: ChangeDetectorGenConfig): ChangeDetectorDefinition[] {
   return ListWrapper.map(nestedPvsWithIndex, (pvWithIndex) => {
     var elementBinders = pvWithIndex.renderProtoView.elementBinders;
     var bindingRecordsCreator = new BindingRecordsCreator();
-    var bindingRecords = bindingRecordsCreator.getBindingRecords(
+    var propBindingRecords = bindingRecordsCreator.getPropertyBindingRecords(
         pvWithIndex.renderProtoView.textBindings, elementBinders, allRenderDirectiveMetadata);
+    var eventBindingRecords =
+        bindingRecordsCreator.getEventBindingRecords(elementBinders, allRenderDirectiveMetadata);
     var directiveRecords =
         bindingRecordsCreator.getDirectiveRecords(elementBinders, allRenderDirectiveMetadata);
-    var strategyName = DEFAULT;
-    var typeString;
-    if (pvWithIndex.renderProtoView.type === renderApi.ViewType.COMPONENT) {
+    var strategyName = ChangeDetectionStrategy.Default;
+    if (pvWithIndex.renderProtoView.type === ViewType.COMPONENT) {
       strategyName = hostComponentMetadata.changeDetection;
-      typeString = 'comp';
-    } else if (pvWithIndex.renderProtoView.type === renderApi.ViewType.HOST) {
-      typeString = 'host';
-    } else {
-      typeString = 'embedded';
     }
-    var id = `${hostComponentMetadata.id}_${typeString}_${pvWithIndex.index}`;
+    var id = _protoViewId(hostComponentMetadata, pvWithIndex);
     var variableNames = nestedPvVariableNames[pvWithIndex.index];
-    return new ChangeDetectorDefinition(id, strategyName, variableNames, bindingRecords,
-                                        directiveRecords);
+    return new ChangeDetectorDefinition(id, strategyName, variableNames, propBindingRecords,
+                                        eventBindingRecords, directiveRecords, genConfig);
   });
 }
 
-function _createAppProtoView(
-    renderProtoView: renderApi.ProtoViewDto, protoChangeDetector: ProtoChangeDetector,
-    variableBindings: Map<string, string>, allDirectives: List<DirectiveBinding>): AppProtoView {
-  var elementBinders = renderProtoView.elementBinders;
-  var protoView = new AppProtoView(renderProtoView.type, protoChangeDetector, variableBindings,
-                                   createVariableLocations(elementBinders),
-                                   renderProtoView.textBindings.length);
-  _createElementBinders(protoView, elementBinders, allDirectives);
-  _bindDirectiveEvents(protoView, elementBinders);
+function _getChangeDetectorDefinitionIds(hostComponentMetadata: RenderDirectiveMetadata,
+                                         nestedPvsWithIndex: RenderProtoViewWithIndex[]): string[] {
+  return nestedPvsWithIndex.map(pvWithIndex => _protoViewId(hostComponentMetadata, pvWithIndex));
+}
 
+function _protoViewId(hostComponentMetadata: RenderDirectiveMetadata,
+                      pvWithIndex: RenderProtoViewWithIndex): string {
+  var typeString;
+  if (pvWithIndex.renderProtoView.type === ViewType.COMPONENT) {
+    typeString = 'comp';
+  } else if (pvWithIndex.renderProtoView.type === ViewType.HOST) {
+    typeString = 'host';
+  } else {
+    typeString = 'embedded';
+  }
+  return `${hostComponentMetadata.id}_${typeString}_${pvWithIndex.index}`;
+}
+
+function _createAppProtoView(
+    renderProtoView: ProtoViewDto, protoChangeDetector: ProtoChangeDetector,
+    variableBindings: Map<string, string>, allDirectives: DirectiveBinding[], pipes: PipeBinding[]):
+    AppProtoView {
+  var elementBinders = renderProtoView.elementBinders;
+  // Embedded ProtoViews that contain `<ng-content>` will be merged into their parents and use
+  // a RenderFragmentRef. I.e. renderProtoView.transitiveNgContentCount > 0.
+  var protoPipes = new ProtoPipes(pipes);
+  var protoView = new AppProtoView(
+      renderProtoView.type, renderProtoView.transitiveNgContentCount > 0, renderProtoView.render,
+      protoChangeDetector, variableBindings, createVariableLocations(elementBinders),
+      renderProtoView.textBindings.length, protoPipes);
+  _createElementBinders(protoView, elementBinders, allDirectives);
   return protoView;
 }
 
-function _collectNestedProtoViewsVariableBindings(
-    nestedPvsWithIndex: List<RenderProtoViewWithIndex>): List<Map<string, string>> {
+function _collectNestedProtoViewsVariableBindings(nestedPvsWithIndex: RenderProtoViewWithIndex[]):
+    Array<Map<string, string>> {
   return ListWrapper.map(nestedPvsWithIndex, (pvWithIndex) => {
     return _createVariableBindings(pvWithIndex.renderProtoView);
   });
@@ -277,8 +364,8 @@ function _createVariableBindings(renderProtoView): Map<string, string> {
   return variableBindings;
 }
 
-function _collectNestedProtoViewsVariableNames(nestedPvsWithIndex: List<RenderProtoViewWithIndex>):
-    List<List<string>> {
+function _collectNestedProtoViewsVariableNames(nestedPvsWithIndex: RenderProtoViewWithIndex[]):
+    string[][] {
   var nestedPvVariableNames = ListWrapper.createFixedSize(nestedPvsWithIndex.length);
   ListWrapper.forEach(nestedPvsWithIndex, (pvWithIndex) => {
     var parentVariableNames =
@@ -289,9 +376,8 @@ function _collectNestedProtoViewsVariableNames(nestedPvsWithIndex: List<RenderPr
   return nestedPvVariableNames;
 }
 
-function _createVariableNames(parentVariableNames: List<string>, renderProtoView): List<string> {
-  var res =
-      isBlank(parentVariableNames) ? <List<string>>[] : ListWrapper.clone(parentVariableNames);
+function _createVariableNames(parentVariableNames: string[], renderProtoView): string[] {
+  var res = isBlank(parentVariableNames) ? <string[]>[] : ListWrapper.clone(parentVariableNames);
   MapWrapper.forEach(renderProtoView.variableBindings,
                      (mappedName, varName) => { res.push(mappedName); });
   ListWrapper.forEach(renderProtoView.elementBinders, binder => {
@@ -301,7 +387,7 @@ function _createVariableNames(parentVariableNames: List<string>, renderProtoView
   return res;
 }
 
-export function createVariableLocations(elementBinders: List<renderApi.ElementBinder>):
+export function createVariableLocations(elementBinders: RenderElementBinder[]):
     Map<string, number> {
   var variableLocations = new Map();
   for (var i = 0; i < elementBinders.length; i++) {
@@ -323,7 +409,7 @@ function _createElementBinders(protoView, elementBinders, allDirectiveBindings) 
         ListWrapper.map(dirs, (dir) => allDirectiveBindings[dir.directiveIndex]);
     var componentDirectiveBinding = null;
     if (directiveBindings.length > 0) {
-      if (directiveBindings[0].metadata.type === renderApi.DirectiveMetadata.COMPONENT_TYPE) {
+      if (directiveBindings[0].metadata.type === RenderDirectiveMetadata.COMPONENT_TYPE) {
         componentDirectiveBinding = directiveBindings[0];
       }
     }
@@ -358,10 +444,13 @@ function _createProtoElementInjector(binderIndex, parentPeiWithDistance, renderE
                                      componentDirectiveBinding, directiveBindings) {
   var protoElementInjector = null;
   // Create a protoElementInjector for any element that either has bindings *or* has one
-  // or more var- defined. Elements with a var- defined need a their own element injector
-  // so that, when hydrating, $implicit can be set to the element.
+  // or more var- defined *or* for <template> elements:
+  // - Elements with a var- defined need a their own element injector
+  //   so that, when hydrating, $implicit can be set to the element.
+  // - <template> elements need their own ElementInjector so that we can query their TemplateRef
   var hasVariables = MapWrapper.size(renderElementBinder.variableBindings) > 0;
-  if (directiveBindings.length > 0 || hasVariables) {
+  if (directiveBindings.length > 0 || hasVariables ||
+      isPresent(renderElementBinder.nestedProtoView)) {
     var directiveVariableBindings =
         createDirectiveVariableBindings(renderElementBinder, directiveBindings);
     protoElementInjector =
@@ -382,8 +471,6 @@ function _createElementBinder(protoView: AppProtoView, boundElementIndex, render
   }
   var elBinder = protoView.bindElement(parent, renderElementBinder.distanceToParent,
                                        protoElementInjector, componentDirectiveBinding);
-  protoView.bindEvent(renderElementBinder.eventBindings, boundElementIndex, -1);
-  // variables
   // The view's locals needs to have a full set of variable names at construction time
   // in order to prevent new variables from being set later in the lifecycle. Since we don't want
   // to actually create variable bindings for the $implicit bindings, add to the
@@ -393,8 +480,8 @@ function _createElementBinder(protoView: AppProtoView, boundElementIndex, render
   return elBinder;
 }
 
-export function createDirectiveVariableBindings(renderElementBinder: renderApi.ElementBinder,
-                                                directiveBindings: List<DirectiveBinding>):
+export function createDirectiveVariableBindings(renderElementBinder: RenderElementBinder,
+                                                directiveBindings: DirectiveBinding[]):
     Map<string, number> {
   var directiveVariableBindings = new Map();
   MapWrapper.forEach(renderElementBinder.variableBindings, (templateName, exportAs) => {
@@ -422,7 +509,7 @@ function _findDirectiveIndexByExportAs(renderElementBinder, directiveBindings, e
     }
   }
 
-  if (isBlank(matchedDirective) && exportAs !== "$implicit") {
+  if (isBlank(matchedDirective) && !StringWrapper.equals(exportAs, "$implicit")) {
     throw new BaseException(`Cannot find directive with exportAs = '${exportAs}'`);
   }
 
@@ -432,28 +519,15 @@ function _findDirectiveIndexByExportAs(renderElementBinder, directiveBindings, e
 function _directiveExportAs(directive): string {
   var directiveExportAs = directive.metadata.exportAs;
   if (isBlank(directiveExportAs) &&
-      directive.metadata.type === renderApi.DirectiveMetadata.COMPONENT_TYPE) {
+      directive.metadata.type === RenderDirectiveMetadata.COMPONENT_TYPE) {
     return "$implicit";
   } else {
     return directiveExportAs;
   }
 }
 
-function _bindDirectiveEvents(protoView, elementBinders: List<renderApi.ElementBinder>) {
-  for (var boundElementIndex = 0; boundElementIndex < elementBinders.length; ++boundElementIndex) {
-    var dirs = elementBinders[boundElementIndex].directives;
-    for (var i = 0; i < dirs.length; i++) {
-      var directiveBinder = dirs[i];
-
-      // directive events
-      protoView.bindEvent(directiveBinder.eventBindings, boundElementIndex, i);
-    }
-  }
-}
-
-
 class RenderProtoViewWithIndex {
-  constructor(public renderProtoView: renderApi.ProtoViewDto, public index: number,
+  constructor(public renderProtoView: ProtoViewDto, public index: number,
               public parentIndex: number, public boundElementIndex: number) {}
 }
 

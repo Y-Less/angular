@@ -1,5 +1,3 @@
-require('../../tools/transpiler/index.js').init();
-
 var Package = require('dgeni').Package;
 var jsdocPackage = require('dgeni-packages/jsdoc');
 var nunjucksPackage = require('dgeni-packages/nunjucks');
@@ -15,10 +13,11 @@ module.exports = new Package('angular-v2-docs', [jsdocPackage, nunjucksPackage, 
 .factory(require('./readers/ngdoc'))
 
 // Register the processors
+.processor(require('./processors/convertPrivateClassesToInterfaces'))
 .processor(require('./processors/generateNavigationDoc'))
 .processor(require('./processors/extractTitleFromGuides'))
 .processor(require('./processors/createOverviewDump'))
-
+.processor(require('./processors/checkUnbalancedBackTicks'))
 
 // Configure the log service
 .config(function(log) {

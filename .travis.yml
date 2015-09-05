@@ -3,6 +3,10 @@ sudo: false
 node_js:
 - '0.12'
 
+branches:
+  except:
+    - g3sync
+
 cache:
   directories:
     - node_modules
@@ -13,6 +17,8 @@ env:
   - KARMA_BROWSERS=DartiumWithWebPlatform
   - E2E_BROWSERS=Dartium
   - LOGS_DIR=/tmp/angular-build/logs
+  - SAUCE_USERNAME=angular-ci
+  - SAUCE_ACCESS_KEY=9b988f434ff8-fbca-8aa4-4ae3-35442987
   - ARCH=linux-x64
   # Token for tsd to increase github rate limit
   # See https://github.com/DefinitelyTyped/tsd#tsdrc
@@ -21,10 +27,22 @@ env:
   # This SSO token belongs to github account angular-github-ratelimit-token which has no access
   # (password is in Valentine)
   - TSDRC='{"token":"ef474500309daea53d5991b3079159a29520a40b"}'
+  # GITHUB_TOKEN_ANGULAR
+  - secure: "fq/U7VDMWO8O8SnAQkdbkoSe2X92PVqg4d044HmRYVmcf6YbO48+xeGJ8yOk0pCBwl3ISO4Q2ot0x546kxfiYBuHkZetlngZxZCtQiFT9kyId8ZKcYdXaIW9OVdw3Gh3tQyUwDucfkVhqcs52D6NZjyE2aWZ4/d1V4kWRO/LMgo="
   matrix:
-  - MODE=js DART_CHANNEL=dev
-  - MODE=dart DART_CHANNEL=stable
-  - MODE=dart DART_CHANNEL=dev
+    # Order: slowest build on top, so that we don't hog VMs while waiting for others to complete.
+    - MODE=dart DART_CHANNEL=stable
+    - MODE=dart DART_CHANNEL=dev
+    - MODE=saucelabs DART_CHANNEL=dev
+    - MODE=dart_experimental DART_CHANNEL=dev
+    - MODE=js DART_CHANNEL=dev
+    - MODE=router DART_CHANNEL=dev
+    - MODE=lint DART_CHANNEL=dev
+
+matrix:
+  allow_failures:
+  - env: "MODE=saucelabs DART_CHANNEL=dev"
+  - env: "MODE=dart_experimental DART_CHANNEL=dev"
 
 addons:
   firefox: "38.0"
@@ -49,18 +67,22 @@ install:
 
 before_script:
 - mkdir -p $LOGS_DIR
+- ./scripts/ci/presubmit-queue-setup.sh
 
 script:
 - ./scripts/ci/build_and_test.sh ${MODE}
 
 after_script:
 - ./scripts/ci/print-logs.sh
+- ./scripts/ci/after-script.sh
 
 notifications:
   webhooks:
     urls:
     - https://webhooks.gitter.im/e/1ef62e23078036f9cee4
-    on_success: change  # options: [always|never|change] default: always
+    # trigger Buildtime Trend Service to parse Travis CI log
+    - https://buildtimetrend.herokuapp.com/travis
+    on_success: always  # options: [always|never|change] default: always
     on_failure: always  # options: [always|never|change] default: always
     on_start: false     # default: false
   slack:
@@ -85,7 +107,6 @@ deploy:
     # create a "subdirectory" for each commit
     upload-dir: $TRAVIS_COMMIT/dart_stable
     on:
-      branch: master
       repo: angular/angular
       condition: "$MODE = dart && $DART_CHANNEL = stable"
   - provider: gcs
@@ -98,6 +119,5 @@ deploy:
     local-dir: deploy
     upload-dir: $TRAVIS_COMMIT/js
     on:
-      branch: master
       repo: angular/angular
       condition: "$MODE = js"

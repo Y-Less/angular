@@ -1,5 +1,5 @@
-import {bind, Binding} from 'angular2/di';
-import {ListWrapper, StringMap} from 'angular2/src/facade/collection';
+import {bind, Binding} from 'angular2/src/core/di';
+import {ListWrapper, StringMap} from 'angular2/src/core/facade/collection';
 import {
   Json,
   isPresent,
@@ -7,15 +7,15 @@ import {
   RegExpWrapper,
   StringWrapper,
   BaseException
-} from 'angular2/src/facade/lang';
+} from 'angular2/src/core/facade/lang';
 
 import {WebDriverExtension, PerfLogFeatures} from '../web_driver_extension';
 import {WebDriverAdapter} from '../web_driver_adapter';
-import {Promise} from 'angular2/src/facade/async';
+import {Promise} from 'angular2/src/core/facade/async';
 
 export class IOsDriverExtension extends WebDriverExtension {
   // TODO(tbosch): use static values when our transpiler supports them
-  static get BINDINGS(): List<Binding> { return _BINDINGS; }
+  static get BINDINGS(): Binding[] { return _BINDINGS; }
 
   constructor(private _driver: WebDriverAdapter) { super(); }
 

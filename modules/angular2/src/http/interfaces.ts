@@ -9,9 +9,13 @@ import {
   ResponseTypes
 } from './enums';
 import {Headers} from './headers';
-import {BaseException} from 'angular2/src/facade/lang';
-import {EventEmitter} from 'angular2/src/facade/async';
+import {BaseException} from 'angular2/src/core/facade/lang';
+import {EventEmitter} from 'angular2/src/core/facade/async';
 import {Request} from './static_request';
+import {URLSearchParamsUnionFixer, URLSearchParams} from './url_search_params';
+
+// Work around Dartanalyzer problem :(
+const URLSearchParams_UnionFixer = URLSearchParamsUnionFixer;
 
 /**
  * Abstract class from which real backends are derived.
@@ -38,9 +42,12 @@ export class Connection {
  * Interface for options to construct a Request, based on
  * [RequestInit](https://fetch.spec.whatwg.org/#requestinit) from the Fetch spec.
  */
-export interface IRequestOptions {
+// TODO(jeffbcross): Change to type declaration when #3828 is fixed
+// https://github.com/angular/angular/issues/3828
+export interface RequestOptionsArgs {
   url?: string;
   method?: RequestMethods;
+  search?: string | URLSearchParams;
   headers?: Headers;
   // TODO: Support Blob, ArrayBuffer, JSON, URLSearchParams, FormData
   body?: string;
@@ -53,7 +60,7 @@ export interface IRequestOptions {
  * Interface for options to construct a Response, based on
  * [ResponseInit](https://fetch.spec.whatwg.org/#responseinit) from the Fetch spec.
  */
-export interface IResponseOptions {
+export interface ResponseOptionsArgs {
   // TODO: Support Blob, ArrayBuffer, JSON
   body?: string | Object | FormData;
   status?: number;

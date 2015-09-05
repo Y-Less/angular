@@ -1,4 +1,5 @@
-import {ElementRef, Component, Directive, View, Injectable, Renderer} from 'angular2/angular2';
+import {ElementRef, Component, Directive, View, Injectable} from 'angular2/core';
+import {Renderer} from 'angular2/render';
 
 // A service available to the Injector, used by the HelloCmp component.
 @Injectable()
@@ -29,7 +30,7 @@ class RedDec {
   selector: 'hello-app',
   // These are services that would be created if a class in the component's
   // template tries to inject them.
-  viewInjector: [GreetingService]
+  viewBindings: [GreetingService]
 })
 // The template for the component.
 @View({

@@ -8,24 +8,15 @@ import {
   expect,
   iit,
   inject,
-  IS_DARTIUM,
   beforeEachBindings,
   it,
   xit,
   TestComponentBuilder
 } from 'angular2/test_lib';
 
-import {Injectable} from 'angular2/di';
+import {Injectable, NgIf} from 'angular2/core';
 
-import {
-  Directive,
-  Component,
-  View,
-} from 'angular2/annotations';
-
-import * as viewAnn from 'angular2/src/core/annotations_impl/view';
-
-import {NgIf} from 'angular2/src/directives/ng_if';
+import {Directive, Component, View, ViewMetadata} from 'angular2/src/core/metadata';
 
 @Component({selector: 'child-comp'})
 @View({template: `<span>Original {{childBinding}}</span>`, directives: []})
@@ -99,7 +90,7 @@ export function main() {
        inject([TestComponentBuilder, AsyncTestCompleter], (tcb, async) => {
 
          tcb.overrideView(ChildComp,
-                          new viewAnn.View({template: '<span>Modified {{childBinding}}</span>'}))
+                          new ViewMetadata({template: '<span>Modified {{childBinding}}</span>'}))
              .createAsync(ChildComp)
              .then((rootTestComponent) => {
                rootTestComponent.detectChanges();

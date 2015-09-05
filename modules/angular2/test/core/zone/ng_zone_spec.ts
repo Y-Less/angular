@@ -10,20 +10,21 @@ import {
   xdescribe,
   xit,
   Log,
-  isInInnerZone
+  isInInnerZone,
+  browserDetection
 } from 'angular2/test_lib';
 
-import {PromiseWrapper, TimerWrapper} from 'angular2/src/facade/async';
-import {BaseException} from 'angular2/src/facade/lang';
-import {DOM} from 'angular2/src/dom/dom_adapter';
+import {PromiseCompleter, PromiseWrapper, TimerWrapper} from 'angular2/src/core/facade/async';
+import {BaseException} from 'angular2/src/core/facade/lang';
 
 import {NgZone} from 'angular2/src/core/zone/ng_zone';
 
-var isIE = DOM.getUserAgent().indexOf("Trident") > -1;
+var needsLongerTimers =
+    browserDetection.isAndroid || browserDetection.isEdge || browserDetection.isIE;
 // Schedules a macrotask (using a timer)
 function macroTask(fn: Function, timer = 1): void {
-  // adds longer timers for passing tests in IE
-  _zone.runOutsideAngular(() => TimerWrapper.setTimeout(fn, isIE ? timer : 1));
+  // adds longer timers for passing tests in IE and Edge
+  _zone.runOutsideAngular(() => TimerWrapper.setTimeout(fn, needsLongerTimers ? timer : 1));
 }
 
 // Schedules a microtasks (using a resolved promise .then())
@@ -65,7 +66,7 @@ export function main() {
       it('should produce long stack traces', inject([AsyncTestCompleter], (async) => {
            macroTask(() => {
              _zone.overrideOnErrorHandler(logError);
-             var c = PromiseWrapper.completer();
+             var c: PromiseCompleter<any> = PromiseWrapper.completer();
 
              _zone.run(() => {
                TimerWrapper.setTimeout(() => {
@@ -88,7 +89,7 @@ export function main() {
          inject([AsyncTestCompleter], (async) => {
            macroTask(() => {
              _zone.overrideOnErrorHandler(logError);
-             var c = PromiseWrapper.completer();
+             var c: PromiseCompleter<any> = PromiseWrapper.completer();
 
              _zone.run(() => {
                microTask(() => {
@@ -116,7 +117,7 @@ export function main() {
       it('should disable long stack traces', inject([AsyncTestCompleter], (async) => {
            macroTask(() => {
              _zone.overrideOnErrorHandler(logError);
-             var c = PromiseWrapper.completer();
+             var c: PromiseCompleter<any> = PromiseWrapper.completer();
 
              _zone.run(() => {
                TimerWrapper.setTimeout(() => {
@@ -182,7 +183,7 @@ function commonTests() {
          macroTask(() => {
            expect(_log.result()).toEqual('run; onTurnDone 1; onTurnDone 2; onEventDone');
            async.done();
-         });
+         }, 80);
        }));
 
     it('should not allow onEventDone to cause further digests',
@@ -206,8 +207,8 @@ function commonTests() {
          macroTask(() => {
            expect(_log.result()).toEqual('run; onTurnDone; onEventDone');
            async.done();
-         });
-       }));
+         }, 150);
+       }), 200);
 
     it('should run async tasks scheduled inside onEventDone outside Angular zone',
        inject([AsyncTestCompleter], (async) => {
@@ -228,7 +229,7 @@ function commonTests() {
            TimerWrapper.setTimeout(() => {
              expect(_log.result()).toEqual('run; onTurnDone; onEventDone; asyncTask');
              async.done();
-           }, 10);
+           }, 20);
          });
        }));
 
@@ -247,7 +248,7 @@ function commonTests() {
            // The microtask (async) is executed after the macrotask (run)
            expect(_log.result()).toEqual('onTurnStart; run start; run end; async; onTurnDone');
            async.done();
-         }, 50);
+         }, 80);
        }));
 
     it('should not run onTurnStart and onTurnDone for nested Zone.run',
@@ -268,8 +269,8 @@ function commonTests() {
                .toEqual(
                    'onTurnStart; start run; nested run; end run; nested run microtask; onTurnDone');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should not run onTurnStart and onTurnDone for nested Zone.run invoked from onTurnDone',
        inject([AsyncTestCompleter], (async) => {
@@ -286,7 +287,7 @@ function commonTests() {
            expect(_log.result())
                .toEqual('start run; onTurnDone:started; nested run; onTurnDone:finished');
            async.done();
-         }, 50);
+         }, 80);
        }));
 
     it('should call onTurnStart and onTurnDone before and after each top-level run',
@@ -304,8 +305,8 @@ function commonTests() {
 
     it('should call onTurnStart and onTurnDone before and after each turn',
        inject([AsyncTestCompleter], (async) => {
-         var a;
-         var b;
+         var a: PromiseCompleter<string>;
+         var b: PromiseCompleter<string>;
 
          macroTask(() => {
            _zone.run(() => {
@@ -330,7 +331,7 @@ function commonTests() {
                .toEqual(
                    'onTurnStart; run start; onTurnDone; onTurnStart; a then; b then; onTurnDone');
            async.done();
-         }, 50);
+         }, 80);
        }));
 
     it('should run a function outside of the angular zone',
@@ -345,7 +346,7 @@ function commonTests() {
 
     it('should call onTurnStart and onTurnDone when an inner microtask is scheduled from outside angular',
        inject([AsyncTestCompleter], (async) => {
-         var completer;
+         var completer: PromiseCompleter<any>;
 
          macroTask(
              () => { _zone.runOutsideAngular(() => { completer = PromiseWrapper.completer(); }); });
@@ -370,7 +371,7 @@ function commonTests() {
                    // Third VM Turn => execute the microtask (inside angular)
                    'onTurnStart; executedMicrotask; onTurnDone');
            async.done();
-         }, 50);
+         }, 80);
        }));
 
     it('should call onTurnStart before executing a microtask scheduled in onTurnDone as well as ' +
@@ -400,8 +401,8 @@ function commonTests() {
                    // Second VM Turn => microtask enqueued from onTurnDone
                    'onTurnStart; executedMicrotask; onTurnDone(begin); onTurnDone(end)');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should call onTurnStart and onTurnDone for a scheduleMicrotask in onTurnDone triggered by ' +
            'a scheduleMicrotask in run',
@@ -435,8 +436,8 @@ function commonTests() {
                    // Second VM Turn => the microtask enqueued from onTurnDone
                    'onTurnStart; onTurnDone(executeMicrotask); onTurnDone(begin); onTurnDone(end)');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should execute promises scheduled in onTurnStart before promises scheduled in run',
        inject([AsyncTestCompleter], (async) => {
@@ -490,12 +491,13 @@ function commonTests() {
                    // Second VM turn: execute the microtask from onTurnEnd
                    'onTurnStart(begin); onTurnStart(end); onTurnDone(executePromise); onTurnDone(begin); onTurnDone(end)');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should call onTurnStart and onTurnDone before and after each turn, respectively',
        inject([AsyncTestCompleter], (async) => {
-         var completerA, completerB;
+         var completerA: PromiseCompleter<any>;
+         var completerB: PromiseCompleter<any>;
 
          macroTask(() => {
            _zone.run(() => {
@@ -507,10 +509,10 @@ function commonTests() {
            });
          });
 
-         macroTask(() => { _zone.run(() => { completerA.resolve(null); }); }, 10);
+         macroTask(() => { _zone.run(() => { completerA.resolve(null); }); }, 20);
 
 
-         macroTask(() => { _zone.run(() => { completerB.resolve(null); }); }, 30);
+         macroTask(() => { _zone.run(() => { completerB.resolve(null); }); }, 120);
 
          macroTask(() => {
            expect(_log.result())
@@ -522,8 +524,8 @@ function commonTests() {
                    // Third VM turn
                    'onTurnStart; b then; onTurnDone');
            async.done();
-         }, 60);
-       }));
+         }, 180);
+       }), 200);
 
     it('should call onTurnStart and onTurnDone before and after (respectively) all turns in a chain',
        inject([AsyncTestCompleter], (async) => {
@@ -542,8 +544,8 @@ function commonTests() {
            expect(_log.result())
                .toEqual('onTurnStart; run start; run end; async1; async2; onTurnDone');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should call onTurnStart and onTurnDone for promises created outside of run body',
        inject([AsyncTestCompleter], (async) => {
@@ -564,8 +566,8 @@ function commonTests() {
            expect(_log.result())
                .toEqual('onTurnStart; zone run; onTurnDone; onTurnStart; promise then; onTurnDone');
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
   });
 
   describe('exceptions', () => {
@@ -595,8 +597,8 @@ function commonTests() {
            expect(_errors.length).toBe(1);
            expect(_errors[0]).toEqual(exception);
            async.done();
-         }, 50);
-       }));
+         }, 150);
+       }), 200);
 
     it('should call onError when onTurnDone throws and the zone is sync',
        inject([AsyncTestCompleter], (async) => {
@@ -611,7 +613,7 @@ function commonTests() {
            expect(_errors.length).toBe(1);
            expect(_errors[0]).toEqual(exception);
            async.done();
-         }, 50);
+         }, 80);
        }));
 
     it('should call onError when onTurnDone throws and the zone is async',
@@ -630,7 +632,7 @@ function commonTests() {
            expect(_errors.length).toBe(1);
            expect(_errors[0]).toEqual(exception);
            async.done();
-         }, 50);
+         }, 80);
        }));
   });
 }

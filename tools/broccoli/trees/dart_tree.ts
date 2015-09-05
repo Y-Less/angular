@@ -13,11 +13,25 @@ import ts2dart from '../broccoli-ts2dart';
 import dartfmt from '../broccoli-dartfmt';
 import replace from '../broccoli-replace';
 
+var global_excludes = [
+  'rtts_assert/**/*',
+  'angular2/http*',
+  'angular2/src/http/**/*',
+  'angular2/test/http/**/*',
+  'examples/src/http/**/*',
+  'examples/test/http/**/*',
+  'examples/src/jsonp/**/*',
+  'examples/test/jsonp/**/*'
+];
+
+
 /**
  * A funnel starting at modules, including the given filters, and moving into the root.
  * @param include Include glob filters.
  */
 function modulesFunnel(include: string[], exclude?: string[]) {
+  exclude = exclude || [];
+  exclude = exclude.concat(global_excludes);
   return new Funnel('modules', {include, destDir: '/', exclude});
 }
 
@@ -44,14 +58,15 @@ function stripModulePrefix(relativePath: string): string {
 
 function getSourceTree() {
   // Transpile everything in 'modules' except for rtts_assertions.
-  var tsInputTree = modulesFunnel(['**/*.js', '**/*.ts', '**/*.dart'], ['rtts_assert/**/*']);
+  var tsInputTree = modulesFunnel(['**/*.js', '**/*.ts', '**/*.dart'], ['angular1_router/**/*']);
   var transpiled = ts2dart(tsInputTree, {
     generateLibraryName: true,
     generateSourceMap: false,
     translateBuiltins: true,
   });
   // Native sources, dart only examples, etc.
-  var dartSrcs = modulesFunnel(['**/*.dart', '**/*.ng_meta.json', '**/css/**']);
+  var dartSrcs =
+      modulesFunnel(['**/*.dart', '**/*.ng_meta.json', '**/*.aliases.json', '**/css/**']);
   return mergeTrees([transpiled, dartSrcs]);
 }
 
@@ -134,7 +149,8 @@ function getDocsTree() {
   var licenses = new MultiCopy('', {
     srcPath: 'LICENSE',
     targetPatterns: ['modules/*'],
-    exclude: ['*/rtts_assert'],  // Not in dart.
+    exclude:
+        ['*/rtts_assert', '*/angular2/src/http', '*/upgrade', '*/angular1_router']  // Not in dart.
   });
   licenses = stew.rename(licenses, stripModulePrefix);
 
@@ -144,8 +160,11 @@ function getDocsTree() {
                            relativePath => relativePath.replace(/\.dart\.md$/, '.md'));
   // Copy all assets, ignore .js. and .dart. (handled above).
   var docs = modulesFunnel(['**/*.md', '**/*.png', '**/*.html', '**/*.css', '**/*.scss'],
-                           ['**/*.js.md', '**/*.dart.md']);
-  return mergeTrees([licenses, mdTree, docs]);
+                           ['**/*.js.md', '**/*.dart.md', 'angular1_router/**/*']);
+
+  var assets = modulesFunnel(['examples/**/*.json']);
+
+  return mergeTrees([licenses, mdTree, docs, assets]);
 }
 
 module.exports = function makeDartTree(options: AngularBuilderOptions) {

@@ -38,7 +38,7 @@ var browsers = argv['browsers'].split(',');
 var CHROME_OPTIONS = {
   'args': ['--js-flags=--expose-gc'],
   'perfLoggingPrefs': {
-    'traceCategories': 'v8,blink.console,disabled-by-default-devtools.timeline'
+    'traceCategories': 'v8,blink.console,disabled-by-default-devtools.timeline,devtools.timeline'
   }
 };
 
@@ -189,10 +189,10 @@ var config = exports.config = {
 function patchProtractorWait(browser) {
   browser.ignoreSynchronization = true;
   var _get = browser.get;
-  var sleepInterval = process.env.TRAVIS || process.env.JENKINS_URL ? 7000 : 3000;
+  var sleepInterval = process.env.TRAVIS || process.env.JENKINS_URL ? 14000 : 8000;
   browser.get = function() {
     var result = _get.apply(this, arguments);
-    browser.sleep(sleepInterval);
+    browser.driver.wait(protractor.until.elementLocated(By.js('var cs = document.body.children; var isLoading = false; for (var i = 0; i < cs.length; i++) {if (cs[i].textContent.indexOf("Loading...") > -1) isLoading = true; } return !isLoading ? document.body.children : null')), sleepInterval);
     return result;
   }
 }
@@ -225,10 +225,8 @@ exports.createBenchpressRunner = function(options) {
   var bindings = [
     benchpress.SeleniumWebDriverAdapter.PROTRACTOR_BINDINGS,
     benchpress.bind(benchpress.Options.FORCE_GC).toValue(argv['force-gc']),
-    benchpress.bind(benchpress.Options.DEFAULT_DESCRIPTION).toValue({
-      'lang': options.lang,
-      'runId': runId
-    }),
+    benchpress.bind(benchpress.Options.DEFAULT_DESCRIPTION)
+        .toValue({'lang': options.lang, 'runId': runId}),
     benchpress.JsonFileReporter.BINDINGS,
     benchpress.bind(benchpress.JsonFileReporter.PATH).toValue(resultsFolder)
   ];

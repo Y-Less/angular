@@ -11,20 +11,22 @@ import {
   xit,
   SpyObject
 } from 'angular2/test_lib';
-import {ObservableWrapper} from 'angular2/src/facade/async';
+import {ObservableWrapper} from 'angular2/src/core/facade/async';
 import {BrowserJsonp} from 'angular2/src/http/backends/browser_jsonp';
 import {JSONPConnection, JSONPBackend} from 'angular2/src/http/backends/jsonp_backend';
-import {bind, Injector} from 'angular2/di';
-import {isPresent, StringWrapper} from 'angular2/src/facade/lang';
-import {TimerWrapper} from 'angular2/src/facade/async';
+import {bind, Injector} from 'angular2/core';
+import {isPresent, StringWrapper} from 'angular2/src/core/facade/lang';
+import {TimerWrapper} from 'angular2/src/core/facade/async';
 import {Request} from 'angular2/src/http/static_request';
-import {Map} from 'angular2/src/facade/collection';
+import {Response} from 'angular2/src/http/static_response';
+import {Map} from 'angular2/src/core/facade/collection';
 import {RequestOptions, BaseRequestOptions} from 'angular2/src/http/base_request_options';
 import {BaseResponseOptions, ResponseOptions} from 'angular2/src/http/base_response_options';
 import {ResponseTypes, ReadyStates, RequestMethods} from 'angular2/src/http/enums';
 
 var addEventListenerSpy;
 var existingScripts = [];
+var unused: Response;
 
 class MockBrowserJsonp extends BrowserJsonp {
   src: string;
@@ -87,7 +89,7 @@ export function main() {
          inject([AsyncTestCompleter], async => {
            let connection = new JSONPConnection(sampleRequest, new MockBrowserJsonp(),
                                                 new ResponseOptions({type: ResponseTypes.Error}));
-           ObservableWrapper.subscribe(connection.response, res => {
+           ObservableWrapper.subscribe<Response>(connection.response, res => {
              expect(res.type).toBe(ResponseTypes.Error);
              async.done();
            });
@@ -104,7 +106,7 @@ export function main() {
 
            ObservableWrapper.subscribe(connection.response, loadSpy, errorSpy, returnSpy);
            connection.dispose();
-           expect(connection.readyState).toBe(ReadyStates.CANCELLED);
+           expect(connection.readyState).toBe(ReadyStates.Cancelled);
 
            connection.finished('Fake data');
            existingScripts[0].dispatchEvent('load');
@@ -151,8 +153,8 @@ export function main() {
          }));
 
       it('should throw if request method is not GET', () => {
-        [RequestMethods.POST, RequestMethods.PUT, RequestMethods.DELETE, RequestMethods.OPTIONS,
-         RequestMethods.HEAD, RequestMethods.PATCH]
+        [RequestMethods.Post, RequestMethods.Put, RequestMethods.Delete, RequestMethods.Options,
+         RequestMethods.Head, RequestMethods.Patch]
             .forEach(method => {
               let base = new BaseRequestOptions();
               let req = new Request(
@@ -164,7 +166,7 @@ export function main() {
       it('should respond with data passed to callback', inject([AsyncTestCompleter], async => {
            let connection = new JSONPConnection(sampleRequest, new MockBrowserJsonp());
 
-           ObservableWrapper.subscribe(connection.response, res => {
+           ObservableWrapper.subscribe<Response>(connection.response, res => {
              expect(res.json()).toEqual(({fake_payload: true, blob_id: 12345}));
              async.done();
            });

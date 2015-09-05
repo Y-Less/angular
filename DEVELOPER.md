@@ -34,9 +34,10 @@ following products on your development machine:
   [Windows](http://windows.github.com)); [GitHub's Guide to Installing
   Git](https://help.github.com/articles/set-up-git) is a good source of information.
 
-* [Node.js](http://nodejs.org), which is used to run a development web server, run tests, and
-  generate distributable files. We also use Node's Package Manager, `npm`, which comes with Node.
-  Depending on your system, you can install Node either from source or as a pre-packaged bundle.
+* [Node.js](http://nodejs.org), (version `>=0.12.0 <0.13.0`) which is used to run a development web server, 
+  run tests, and generate distributable files. We also use Node's Package Manager, `npm` 
+  (version `>=2.0 <3.0`), which comes with Node. Depending on your system, you can install Node either from 
+  source or as a pre-packaged bundle.
 
 * [Chrome Canary](https://www.google.com/chrome/browser/canary.html), a version of Chrome with
   bleeding edge functionality, built especially for developers (and early adopters).
@@ -187,7 +188,7 @@ rights to built them in your operating system.
 ### E2E tests
 
 1. `$(npm bin)/gulp build.js.cjs` (builds benchpress and tests into `dist/js/cjs` folder).
-2. `$(npm bin)/gulp serve.js.prod serve.js.dart2js` (runs a local webserver).
+2. `$(npm bin)/gulp serve.js.prod serve.dart` (runs a local webserver).
 3. `$(npm bin)/protractor protractor-js.conf.js`: JS e2e tests.
 4. `$(npm bin)/protractor protractor-dart2js.conf.js`: dart2js e2e tests.
 
@@ -197,7 +198,7 @@ Angular specific command line options when running protractor:
 ### Performance tests
 
 1. `$(npm bin)/gulp build.js.cjs` (builds benchpress and tests into `dist/js/cjs` folder)
-2. `$(npm bin)/gulp serve.js.prod serve.js.dart2js` (runs a local webserver)
+2. `$(npm bin)/gulp serve.js.prod serve.dart` (runs a local webserver)
 3. `$(npm bin)/protractor protractor-js.conf.js --benchmark`: JS performance tests
 4. `$(npm bin)/protractor protractor-dart2js.conf.js --benchmark`: dart2js performance tests
 

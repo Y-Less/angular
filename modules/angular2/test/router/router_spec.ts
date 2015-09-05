@@ -8,24 +8,24 @@ import {
   expect,
   inject,
   beforeEach,
-  beforeEachBindings,
-  SpyObject
+  beforeEachBindings
 } from 'angular2/test_lib';
-import {IMPLEMENTS} from 'angular2/src/facade/lang';
+import {SpyRouterOutlet} from './spies';
+import {Type} from 'angular2/src/core/facade/lang';
+import {Promise, PromiseWrapper, ObservableWrapper} from 'angular2/src/core/facade/async';
+import {ListWrapper} from 'angular2/src/core/facade/collection';
 
-import {Promise, PromiseWrapper} from 'angular2/src/facade/async';
-import {ListWrapper} from 'angular2/src/facade/collection';
 import {Router, RootRouter} from 'angular2/src/router/router';
 import {Pipeline} from 'angular2/src/router/pipeline';
-import {RouterOutlet} from 'angular2/src/router/router_outlet';
 import {SpyLocation} from 'angular2/src/mock/location_mock';
 import {Location} from 'angular2/src/router/location';
+import {stringifyInstruction} from 'angular2/src/router/instruction';
 
 import {RouteRegistry} from 'angular2/src/router/route_registry';
-import {RouteConfig} from 'angular2/src/router/route_config_decorator';
+import {RouteConfig, AsyncRoute, Route} from 'angular2/src/router/route_config_decorator';
 import {DirectiveResolver} from 'angular2/src/core/compiler/directive_resolver';
 
-import {bind} from 'angular2/di';
+import {bind} from 'angular2/core';
 
 export function main() {
   describe('Router', () => {
@@ -52,10 +52,10 @@ export function main() {
     it('should navigate based on the initial URL state', inject([AsyncTestCompleter], (async) => {
          var outlet = makeDummyOutlet();
 
-         router.config({'path': '/', 'component': DummyComponent})
-             .then((_) => router.registerOutlet(outlet))
+         router.config([new Route({path: '/', component: DummyComponent})])
+             .then((_) => router.registerPrimaryOutlet(outlet))
              .then((_) => {
-               expect(outlet.spy('commit')).toHaveBeenCalled();
+               expect(outlet.spy('activate')).toHaveBeenCalled();
                expect(location.urlChanges).toEqual([]);
                async.done();
              });
@@ -66,12 +66,26 @@ export function main() {
        inject([AsyncTestCompleter], (async) => {
          var outlet = makeDummyOutlet();
 
-         router.registerOutlet(outlet)
-             .then((_) => router.config({'path': '/a', 'component': DummyComponent}))
+         router.registerPrimaryOutlet(outlet)
+             .then((_) => router.config([new Route({path: '/a', component: DummyComponent})]))
              .then((_) => router.navigate('/a'))
              .then((_) => {
-               expect(outlet.spy('commit')).toHaveBeenCalled();
+               expect(outlet.spy('activate')).toHaveBeenCalled();
                expect(location.urlChanges).toEqual(['/a']);
+               async.done();
+             });
+       }));
+
+    it('should not push a history change on when navigate is called with skipUrlChange',
+       inject([AsyncTestCompleter], (async) => {
+         var outlet = makeDummyOutlet();
+
+         router.registerPrimaryOutlet(outlet)
+             .then((_) => router.config([new Route({path: '/b', component: DummyComponent})]))
+             .then((_) => router.navigate('/b', true))
+             .then((_) => {
+               expect(outlet.spy('activate')).toHaveBeenCalled();
+               expect(location.urlChanges).toEqual([]);
                async.done();
              });
        }));
@@ -80,14 +94,14 @@ export function main() {
     it('should navigate after being configured', inject([AsyncTestCompleter], (async) => {
          var outlet = makeDummyOutlet();
 
-         router.registerOutlet(outlet)
+         router.registerPrimaryOutlet(outlet)
              .then((_) => router.navigate('/a'))
              .then((_) => {
-               expect(outlet.spy('commit')).not.toHaveBeenCalled();
-               return router.config({'path': '/a', 'component': DummyComponent});
+               expect(outlet.spy('activate')).not.toHaveBeenCalled();
+               return router.config([new Route({path: '/a', component: DummyComponent})]);
              })
              .then((_) => {
-               expect(outlet.spy('commit')).toHaveBeenCalled();
+               expect(outlet.spy('activate')).toHaveBeenCalled();
                async.done();
              });
        }));
@@ -107,55 +121,119 @@ export function main() {
           .toThrowError(`Link "${ListWrapper.toJSON(['/'])}" must include a route name.`);
     });
 
+    it('should, when subscribed to, return a disposable subscription', () => {
+      expect(() => {
+        var subscription = router.subscribe((_) => {});
+        ObservableWrapper.dispose(subscription);
+      }).not.toThrow();
+    });
 
     it('should generate URLs from the root component when the path starts with /', () => {
-      router.config({'path': '/first/...', 'component': DummyParentComp, 'as': 'firstCmp'});
+      router.config([new Route({path: '/first/...', component: DummyParentComp, as: 'firstCmp'})]);
 
-      expect(router.generate(['/firstCmp', 'secondCmp'])).toEqual('/first/second');
-      expect(router.generate(['/firstCmp', 'secondCmp'])).toEqual('/first/second');
-      expect(router.generate(['/firstCmp/secondCmp'])).toEqual('/first/second');
+      var instruction = router.generate(['/firstCmp', 'secondCmp']);
+      expect(stringifyInstruction(instruction)).toEqual('first/second');
+
+      instruction = router.generate(['/firstCmp/secondCmp']);
+      expect(stringifyInstruction(instruction)).toEqual('first/second');
+    });
+
+    it('should generate an instruction with terminal async routes',
+       inject([AsyncTestCompleter], (async) => {
+         var outlet = makeDummyOutlet();
+
+         router.registerPrimaryOutlet(outlet);
+         router.config([new AsyncRoute({path: '/first', loader: loader, as: 'FirstCmp'})]);
+
+         var instruction = router.generate(['/FirstCmp']);
+         router.navigateInstruction(instruction)
+             .then((_) => {
+               expect(outlet.spy('activate')).toHaveBeenCalled();
+               async.done();
+             });
+       }));
+
+    it('should return whether a given instruction is active with isRouteActive',
+       inject([AsyncTestCompleter], (async) => {
+         var outlet = makeDummyOutlet();
+
+         router.registerPrimaryOutlet(outlet)
+             .then((_) => router.config([
+               new Route({path: '/a', component: DummyComponent, as: 'A'}),
+               new Route({path: '/b', component: DummyComponent, as: 'B'})
+             ]))
+             .then((_) => router.navigate('/a'))
+             .then((_) => {
+               var instruction = router.generate(['/A']);
+               var otherInstruction = router.generate(['/B']);
+
+               expect(router.isRouteActive(instruction)).toEqual(true);
+               expect(router.isRouteActive(otherInstruction)).toEqual(false);
+               async.done();
+             });
+       }));
+
+    describe('query string params', () => {
+      it('should use query string params for the root route', () => {
+        router.config(
+            [new Route({path: '/hi/how/are/you', component: DummyComponent, as: 'greeting-url'})]);
+
+        var instruction = router.generate(['/greeting-url', {'name': 'brad'}]);
+        var path = stringifyInstruction(instruction);
+        expect(path).toEqual('hi/how/are/you?name=brad');
+      });
+
+      it('should serialize parameters that are not part of the route definition as query string params',
+         () => {
+           router.config(
+               [new Route({path: '/one/two/:three', component: DummyComponent, as: 'number-url'})]);
+
+           var instruction = router.generate(['/number-url', {'three': 'three', 'four': 'four'}]);
+           var path = stringifyInstruction(instruction);
+           expect(path).toEqual('one/two/three?four=four');
+         });
     });
 
     describe('matrix params', () => {
-      it('should apply inline matrix params for each router path within the generated URL', () => {
-        router.config({'path': '/first/...', 'component': DummyParentComp, 'as': 'firstCmp'});
+      it('should generate matrix params for each non-root component', () => {
+        router.config(
+            [new Route({path: '/first/...', component: DummyParentComp, as: 'firstCmp'})]);
 
-        var path =
+        var instruction =
             router.generate(['/firstCmp', {'key': 'value'}, 'secondCmp', {'project': 'angular'}]);
-        expect(path).toEqual('/first;key=value/second;project=angular');
+        var path = stringifyInstruction(instruction);
+        expect(path).toEqual('first/second;project=angular?key=value');
       });
 
-      it('should apply inline matrix params for each router path within the generated URL and also include named params',
-         () => {
-           router.config(
-               {'path': '/first/:token/...', 'component': DummyParentComp, 'as': 'firstCmp'});
+      it('should work with named params', () => {
+        router.config(
+            [new Route({path: '/first/:token/...', component: DummyParentComp, as: 'firstCmp'})]);
 
-           var path =
-               router.generate(['/firstCmp', {'token': 'min'}, 'secondCmp', {'author': 'max'}]);
-           expect(path).toEqual('/first/min/second;author=max');
-         });
+        var instruction =
+            router.generate(['/firstCmp', {'token': 'min'}, 'secondCmp', {'author': 'max'}]);
+        var path = stringifyInstruction(instruction);
+        expect(path).toEqual('first/min/second;author=max');
+      });
     });
   });
 }
 
-@proxy
-@IMPLEMENTS(RouterOutlet)
-class DummyOutlet extends SpyObject {
-  noSuchMethod(m) { return super.noSuchMethod(m) }
+function loader(): Promise<Type> {
+  return PromiseWrapper.resolve(DummyComponent);
 }
 
 class DummyComponent {}
 
-@RouteConfig([{'path': '/second', 'component': DummyComponent, 'as': 'secondCmp'}])
+@RouteConfig([new Route({path: '/second', component: DummyComponent, as: 'secondCmp'})])
 class DummyParentComp {
 }
 
 function makeDummyOutlet() {
-  var ref = new DummyOutlet();
+  var ref = new SpyRouterOutlet();
   ref.spy('canActivate').andCallFake((_) => PromiseWrapper.resolve(true));
   ref.spy('canReuse').andCallFake((_) => PromiseWrapper.resolve(false));
   ref.spy('canDeactivate').andCallFake((_) => PromiseWrapper.resolve(true));
-  ref.spy('commit').andCallFake((_) => PromiseWrapper.resolve(true));
+  ref.spy('activate').andCallFake((_) => PromiseWrapper.resolve(true));
   return ref;
 }
 

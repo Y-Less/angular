@@ -2,16 +2,18 @@
 library angular2.test.di.integration_dart_spec;
 
 import 'package:angular2/angular2.dart';
-import 'package:angular2/di.dart';
+import 'package:angular2/core.dart';
+import 'package:angular2/src/core/debug.dart';
 import 'package:angular2/test_lib.dart';
 import 'package:observe/observe.dart';
-import 'package:angular2/src/directives/observable_list_diff.dart';
-import 'package:angular2/src/change_detection/pipes/iterable_changes.dart';
+import 'package:angular2/src/core/change_detection/differs/default_iterable_differ.dart';
+import 'package:angular2/src/core/change_detection/change_detection.dart';
 
 class MockException implements Error {
   var message;
   var stackTrace;
 }
+
 class NonError {
   var message;
 }
@@ -41,143 +43,167 @@ void functionThatThrowsNonError() {
 
 main() {
   describe('TypeLiteral', () {
-    it('should publish via viewInjector', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '<type-literal-component></type-literal-component>',
-          directives: [TypeLiteralComponent]))
-
-      .createAsync(Dummy).then((tc) {
-        tc.detectChanges();
-        expect(asNativeElements(tc.componentViewChildren)).toHaveText('[Hello, World]');
-        async.done();
-      });
-    }));
+    it(
+        'should publish via viewBindings',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template:
+                          '<type-literal-component></type-literal-component>',
+                      directives: [TypeLiteralComponent]))
+              .createAsync(Dummy)
+              .then((tc) {
+            tc.detectChanges();
+            expect(asNativeElements(tc.componentViewChildren))
+                .toHaveText('[Hello, World]');
+            async.done();
+          });
+        }));
   });
 
   describe('Error handling', () {
-    it('should preserve Error stack traces thrown from components', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '<throwing-component></throwing-component>',
-          directives: [ThrowingComponent]))
+    it(
+        'should preserve Error stack traces thrown from components',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template: '<throwing-component></throwing-component>',
+                      directives: [ThrowingComponent]))
+              .createAsync(Dummy)
+              .catchError((e, stack) {
+            expect(e).toContainError("MockException");
+            expect(e).toContainError("functionThatThrows");
+            async.done();
+          });
+        }));
 
-      .createAsync(Dummy).catchError((e, stack) {
-        expect(e.message).toContain("MockException");
-        expect(e.message).toContain("functionThatThrows");
-        async.done();
-      });
-    }));
-
-    it('should preserve non-Error stack traces thrown from components', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '<throwing-component2></throwing-component2>',
-          directives: [ThrowingComponent2]))
-
-      .createAsync(Dummy).catchError((e, stack) {
-        expect(e.message).toContain("NonError");
-        expect(e.message).toContain("functionThatThrows");
-        async.done();
-      });
-    }));
+    it(
+        'should preserve non-Error stack traces thrown from components',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template: '<throwing-component2></throwing-component2>',
+                      directives: [ThrowingComponent2]))
+              .createAsync(Dummy)
+              .catchError((e, stack) {
+            expect(e).toContainError("NonError");
+            expect(e).toContainError("functionThatThrows");
+            async.done();
+          });
+        }));
   });
 
   describe('Property access', () {
-    it('should distinguish between map and property access', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '<property-access></property-access>',
-          directives: [PropertyAccess]))
+    it(
+        'should distinguish between map and property access',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template: '<property-access></property-access>',
+                      directives: [PropertyAccess]))
+              .createAsync(Dummy)
+              .then((tc) {
+            tc.detectChanges();
+            expect(asNativeElements(tc.componentViewChildren))
+                .toHaveText('prop:foo-prop;map:foo-map');
+            async.done();
+          });
+        }));
 
-      .createAsync(Dummy).then((tc) {
-        tc.detectChanges();
-        expect(asNativeElements(tc.componentViewChildren)).toHaveText('prop:foo-prop;map:foo-map');
-        async.done();
-      });
-    }));
-
-    it('should not fallback on map access if property missing', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '<no-property-access></no-property-access>',
-          directives: [NoPropertyAccess]))
-
-      .createAsync(Dummy).then((tc) {
-        expect(() => tc.detectChanges())
-            .toThrowError(new RegExp('property not found'));
-        async.done();
-      });
-    }));
+    it(
+        'should not fallback on map access if property missing',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template: '<no-property-access></no-property-access>',
+                      directives: [NoPropertyAccess]))
+              .createAsync(Dummy)
+              .then((tc) {
+            expect(() => tc.detectChanges())
+                .toThrowError(new RegExp('property not found'));
+            async.done();
+          });
+        }));
   });
 
   describe('OnChange', () {
-    it('should be notified of changes', inject([
-      TestComponentBuilder,
-      AsyncTestCompleter
-    ], (tb, async) {
-      tb.overrideView(Dummy, new View(
-          template: '''<on-change [prop]="'hello'"></on-change>''',
-          directives: [OnChangeComponent]))
-
-      .createAsync(Dummy).then((tc) {
-        tc.detectChanges();
-        var cmp = tc.componentViewChildren[0].inject(OnChangeComponent);
-        expect(cmp.prop).toEqual('hello');
-        expect(cmp.changes.containsKey('prop')).toEqual(true);
-        async.done();
-      });
-    }));
+    it(
+        'should be notified of changes',
+        inject([TestComponentBuilder, AsyncTestCompleter], (tb, async) {
+          tb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template: '''<on-change [prop]="'hello'"></on-change>''',
+                      directives: [OnChangeComponent]))
+              .createAsync(Dummy)
+              .then((tc) {
+            tc.detectChanges();
+            var cmp = tc.componentViewChildren[0].inject(OnChangeComponent);
+            expect(cmp.prop).toEqual('hello');
+            expect(cmp.changes.containsKey('prop')).toEqual(true);
+            async.done();
+          });
+        }));
   });
 
   describe("ObservableListDiff", () {
-    it('should be notified of changes', inject([TestComponentBuilder, Log], fakeAsync((TestComponentBuilder tcb, Log log) {
-      tcb.overrideView(Dummy, new View(
-          template: '''<component-with-observable-list [list]="value"></component-with-observable-list>''',
-          directives: [ComponentWithObservableList]))
+    it(
+        'should be notified of changes',
+        inject([TestComponentBuilder, Log],
+            fakeAsync((TestComponentBuilder tcb, Log log) {
+          tcb
+              .overrideView(
+                  Dummy,
+                  new ViewMetadata(
+                      template:
+                          '''<component-with-observable-list [list]="value"></component-with-observable-list>''',
+                      directives: [ComponentWithObservableList]))
+              .createAsync(Dummy)
+              .then((tc) {
+            tc.componentInstance.value = new ObservableList.from([1, 2]);
 
-      .createAsync(Dummy).then((tc) {
-        tc.componentInstance.value = new ObservableList.from([1,2]);
+            tc.detectChanges();
 
-        tc.detectChanges();
+            expect(log.result()).toEqual("check");
+            expect(asNativeElements(tc.componentViewChildren)).toHaveText('12');
 
-        expect(log.result()).toEqual("check");
-        expect(asNativeElements(tc.componentViewChildren)).toHaveText('12');
+            tc.detectChanges();
 
-        tc.detectChanges();
+            // we did not change the list => no checks
+            expect(log.result()).toEqual("check");
 
-        // we did not change the list => no checks
-        expect(log.result()).toEqual("check");
+            tc.componentInstance.value.add(3);
 
-        tc.componentInstance.value.add(3);
+            flushMicrotasks();
 
-        flushMicrotasks();
+            tc.detectChanges();
 
-        tc.detectChanges();
+            // we changed the list => a check
+            expect(log.result()).toEqual("check; check");
+            expect(asNativeElements(tc.componentViewChildren))
+                .toHaveText('123');
 
-        // we changed the list => a check
-        expect(log.result()).toEqual("check; check");
-        expect(asNativeElements(tc.componentViewChildren)).toHaveText('123');
+            // we replaced the list => a check
+            tc.componentInstance.value = new ObservableList.from([5, 6, 7]);
 
-        // we replaced the list => a check
-        tc.componentInstance.value = new ObservableList.from([5,6,7]);
+            tc.detectChanges();
 
-        tc.detectChanges();
-
-        expect(log.result()).toEqual("check; check; check");
-        expect(asNativeElements(tc.componentViewChildren)).toHaveText('567');
-      });
-    })));
+            expect(log.result()).toEqual("check; check; check");
+            expect(asNativeElements(tc.componentViewChildren))
+                .toHaveText('567');
+          });
+        })));
   });
 }
 
@@ -188,10 +214,10 @@ class Dummy {
 
 @Component(
     selector: 'type-literal-component',
-    viewInjector: const [
-  const Binding(const TypeLiteral<List<String>>(),
-      toValue: const <String>['Hello', 'World'])
-])
+    viewBindings: const [
+      const Binding(const TypeLiteral<List<String>>(),
+          toValue: const <String>['Hello', 'World'])
+    ])
 @View(template: '{{list}}')
 class TypeLiteralComponent {
   final List<String> list;
@@ -215,7 +241,7 @@ class ThrowingComponent2 {
   }
 }
 
-@proxy
+@proxy()
 class PropModel implements Map {
   final String foo = 'foo-prop';
 
@@ -238,41 +264,45 @@ class NoPropertyAccess {
   final model = new PropModel();
 }
 
-@Component(selector: 'on-change',
-    // TODO: needed because of https://github.com/angular/angular/issues/2120
-    lifecycle: const [LifecycleEvent.onChange], properties: const ['prop'])
+@Component(
+    selector: 'on-change',
+    properties: const ['prop'])
 @View(template: '')
-class OnChangeComponent implements OnChange {
+class OnChangeComponent implements OnChanges {
   Map changes;
   String prop;
 
   @override
-  void onChange(Map changes) {
+  void onChanges(Map changes) {
     this.changes = changes;
   }
 }
 
 @Component(
     selector: 'component-with-observable-list',
-    changeDetection: ON_PUSH,
+    changeDetection: ChangeDetectionStrategy.OnPush,
     properties: const ['list'],
-    hostInjector: const [
-      const Binding(Pipes, toValue: const Pipes (const {"iterableDiff": const [const ObservableListDiffFactory(), const IterableChangesFactory(), const NullPipeFactory()]}))
-    ]
-)
-@View(template: '<span *ng-for="#item of list">{{item}}</span><directive-logging-checks></directive-logging-checks>', directives: const [NgFor, DirectiveLoggingChecks])
-class ComponentWithObservableList  {
+    bindings: const [
+      const Binding(IterableDiffers,
+          toValue: const IterableDiffers(const [
+            const ObservableListDiffFactory(),
+            const DefaultIterableDifferFactory()
+          ]))
+    ])
+@View(
+    template:
+        '<span *ng-for="#item of list">{{item}}</span><directive-logging-checks></directive-logging-checks>',
+    directives: const [NgFor, DirectiveLoggingChecks])
+class ComponentWithObservableList {
   Iterable list;
 }
 
 @Directive(
-  selector: 'directive-logging-checks',
-  lifecycle: const [LifecycleEvent.onCheck]
-)
-class DirectiveLoggingChecks implements OnCheck {
+    selector: 'directive-logging-checks')
+class DirectiveLoggingChecks implements DoCheck {
   Log log;
 
   DirectiveLoggingChecks(this.log);
 
-  onCheck() => log.add("check");
+  doCheck() => log.add("check");
 }

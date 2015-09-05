@@ -1,9 +1,10 @@
 import {LocationStrategy} from './location_strategy';
-import {StringWrapper, isPresent, CONST_EXPR} from 'angular2/src/facade/lang';
-import {EventEmitter, ObservableWrapper} from 'angular2/src/facade/async';
-import {OpaqueToken, Injectable, Optional, Inject} from 'angular2/di';
+import {StringWrapper, isPresent, CONST_EXPR} from 'angular2/src/core/facade/lang';
+import {EventEmitter, ObservableWrapper} from 'angular2/src/core/facade/async';
+import {BaseException, isBlank} from 'angular2/src/core/facade/lang';
+import {OpaqueToken, Injectable, Optional, Inject} from 'angular2/src/core/di';
 
-export const appBaseHrefToken: OpaqueToken = CONST_EXPR(new OpaqueToken('locationHrefToken'));
+export const APP_BASE_HREF: OpaqueToken = CONST_EXPR(new OpaqueToken('appBaseHref'));
 
 /**
  * This is the service that an application developer will directly interact with.
@@ -17,60 +18,64 @@ export const appBaseHrefToken: OpaqueToken = CONST_EXPR(new OpaqueToken('locatio
  */
 @Injectable()
 export class Location {
-  private _subject: EventEmitter = new EventEmitter();
-  private _baseHref: string;
+  _subject: EventEmitter = new EventEmitter();
+  _baseHref: string;
 
-  constructor(public _platformStrategy: LocationStrategy,
-              @Optional() @Inject(appBaseHrefToken) href?: string) {
-    this._baseHref = stripTrailingSlash(
-        stripIndexHtml(isPresent(href) ? href : this._platformStrategy.getBaseHref()));
-    this._platformStrategy.onPopState((_) => this._onPopState(_));
+  constructor(public platformStrategy: LocationStrategy,
+              @Optional() @Inject(APP_BASE_HREF) href?: string) {
+    var browserBaseHref = isPresent(href) ? href : this.platformStrategy.getBaseHref();
+
+    if (isBlank(browserBaseHref)) {
+      throw new BaseException(
+          `No base href set. Either provide a binding to "appBaseHrefToken" or add a base element.`);
+    }
+
+    this._baseHref = stripTrailingSlash(stripIndexHtml(browserBaseHref));
+    this.platformStrategy.onPopState(
+        (_) => { ObservableWrapper.callNext(this._subject, {'url': this.path(), 'pop': true}); });
   }
 
-  _onPopState(_): void { ObservableWrapper.callNext(this._subject, {'url': this.path()}); }
-
-  path(): string { return this.normalize(this._platformStrategy.path()); }
+  path(): string { return this.normalize(this.platformStrategy.path()); }
 
   normalize(url: string): string {
-    return stripTrailingSlash(this._stripBaseHref(stripIndexHtml(url)));
+    return stripTrailingSlash(_stripBaseHref(this._baseHref, stripIndexHtml(url)));
   }
 
   normalizeAbsolutely(url: string): string {
     if (!url.startsWith('/')) {
       url = '/' + url;
     }
-    return stripTrailingSlash(this._addBaseHref(url));
-  }
-
-  _stripBaseHref(url: string): string {
-    if (this._baseHref.length > 0 && url.startsWith(this._baseHref)) {
-      return url.substring(this._baseHref.length);
-    }
-    return url;
-  }
-
-  _addBaseHref(url: string): string {
-    if (!url.startsWith(this._baseHref)) {
-      return this._baseHref + url;
-    }
-    return url;
+    return stripTrailingSlash(_addBaseHref(this._baseHref, url));
   }
 
   go(url: string): void {
     var finalUrl = this.normalizeAbsolutely(url);
-    this._platformStrategy.pushState(null, '', finalUrl);
+    this.platformStrategy.pushState(null, '', finalUrl);
   }
 
-  forward(): void { this._platformStrategy.forward(); }
+  forward(): void { this.platformStrategy.forward(); }
 
-  back(): void { this._platformStrategy.back(); }
+  back(): void { this.platformStrategy.back(); }
 
-  subscribe(onNext, onThrow = null, onReturn = null): void {
+  subscribe(onNext: (value: any) => void, onThrow: (exception: any) => void = null,
+            onReturn: () => void = null): void {
     ObservableWrapper.subscribe(this._subject, onNext, onThrow, onReturn);
   }
 }
 
+function _stripBaseHref(baseHref: string, url: string): string {
+  if (baseHref.length > 0 && url.startsWith(baseHref)) {
+    return url.substring(baseHref.length);
+  }
+  return url;
+}
 
+function _addBaseHref(baseHref: string, url: string): string {
+  if (!url.startsWith(baseHref)) {
+    return baseHref + url;
+  }
+  return url;
+}
 
 function stripIndexHtml(url: string): string {
   if (/\/index.html$/g.test(url)) {

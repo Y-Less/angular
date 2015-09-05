@@ -1,5 +1,10 @@
-import {Promise, PromiseWrapper, EventEmitter, ObservableWrapper} from 'angular2/src/facade/async';
-import {Map, MapWrapper, List, ListWrapper} from 'angular2/src/facade/collection';
+import {
+  Promise,
+  PromiseWrapper,
+  EventEmitter,
+  ObservableWrapper
+} from 'angular2/src/core/facade/async';
+import {Map, StringMapWrapper, MapWrapper, ListWrapper} from 'angular2/src/core/facade/collection';
 import {
   isBlank,
   isString,
@@ -8,14 +13,15 @@ import {
   Type,
   isArray,
   BaseException
-} from 'angular2/src/facade/lang';
+} from 'angular2/src/core/facade/lang';
 
 import {RouteRegistry} from './route_registry';
 import {Pipeline} from './pipeline';
-import {Instruction} from './instruction';
+import {ComponentInstruction, Instruction, stringifyInstruction} from './instruction';
 import {RouterOutlet} from './router_outlet';
 import {Location} from './location';
 import {getCanActivateHook} from './route_lifecycle_reflector';
+import {RouteDefinition} from './route_config_impl';
 
 let _resolveToTrue = PromiseWrapper.resolve(true);
 let _resolveToFalse = PromiseWrapper.resolve(false);
@@ -42,12 +48,16 @@ export class Router {
   lastNavigationAttempt: string;
 
   private _currentInstruction: Instruction = null;
+
   private _currentNavigation: Promise<any> = _resolveToTrue;
   private _outlet: RouterOutlet = null;
+
+  private _auxRouters: Map<string, Router> = new Map();
+  private _childRouter: Router;
+
   private _subject: EventEmitter = new EventEmitter();
 
-  // todo(jeffbcross): rename _registry to registry since it is accessed from subclasses
-  // todo(jeffbcross): rename _pipeline to pipeline since it is accessed from subclasses
+
   constructor(public registry: RouteRegistry, public _pipeline: Pipeline, public parent: Router,
               public hostComponent: any) {}
 
@@ -56,33 +66,79 @@ export class Router {
    * Constructs a child router. You probably don't need to use this unless you're writing a reusable
    * component.
    */
-  childRouter(hostComponent: any): Router { return new ChildRouter(this, hostComponent); }
+  childRouter(hostComponent: any): Router {
+    return this._childRouter = new ChildRouter(this, hostComponent);
+  }
 
 
   /**
-   * Register an object to notify of route changes. You probably don't need to use this unless
-   * you're writing a reusable component.
+   * Constructs a child router. You probably don't need to use this unless you're writing a reusable
+   * component.
    */
-  registerOutlet(outlet: RouterOutlet): Promise<boolean> {
-    // TODO: sibling routes
+  auxRouter(hostComponent: any): Router { return new ChildRouter(this, hostComponent); }
+
+  /**
+   * Register an outlet to notified of primary route changes.
+   *
+   * You probably don't need to use this unless you're writing a reusable component.
+   */
+  registerPrimaryOutlet(outlet: RouterOutlet): Promise<boolean> {
+    if (isPresent(outlet.name)) {
+      throw new BaseException(`registerAuxOutlet expects to be called with an unnamed outlet.`);
+    }
+
     this._outlet = outlet;
     if (isPresent(this._currentInstruction)) {
-      return outlet.commit(this._currentInstruction);
+      return this.commit(this._currentInstruction, false);
+    }
+    return _resolveToTrue;
+  }
+
+  /**
+   * Register an outlet to notified of auxiliary route changes.
+   *
+   * You probably don't need to use this unless you're writing a reusable component.
+   */
+  registerAuxOutlet(outlet: RouterOutlet): Promise<boolean> {
+    var outletName = outlet.name;
+    if (isBlank(outletName)) {
+      throw new BaseException(`registerAuxOutlet expects to be called with an outlet with a name.`);
+    }
+
+    // TODO...
+    // what is the host of an aux route???
+    var router = this.auxRouter(this.hostComponent);
+
+    this._auxRouters.set(outletName, router);
+    router._outlet = outlet;
+
+    var auxInstruction;
+    if (isPresent(this._currentInstruction) &&
+        isPresent(auxInstruction = this._currentInstruction.auxInstruction[outletName])) {
+      return router.commit(auxInstruction);
     }
     return _resolveToTrue;
   }
 
 
   /**
+   * Given an instruction, returns `true` if the instruction is currently active,
+   * otherwise `false`.
+   */
+  isRouteActive(instruction: Instruction): boolean {
+    var router = this;
+    while (isPresent(router.parent) && isPresent(instruction.child)) {
+      router = router.parent;
+      instruction = instruction.child;
+    }
+    return isPresent(this._currentInstruction) &&
+           this._currentInstruction.component == instruction.component;
+  }
+
+  /**
    * Dynamically update the routing configuration and trigger a navigation.
    *
    * # Usage
-   *
-   * ```
-   * router.config({ 'path': '/', 'component': IndexCmp});
-   * ```
-   *
-   * Or:
    *
    * ```
    * router.config([
@@ -91,13 +147,9 @@ export class Router {
    * ]);
    * ```
    */
-  config(config: StringMap<string, any>| List<StringMap<string, any>>): Promise<any> {
-    if (isArray(config)) {
-      (<List<any>>config)
-          .forEach((configObject) => { this.registry.config(this.hostComponent, configObject); });
-    } else {
-      this.registry.config(this.hostComponent, config);
-    }
+  config(definitions: RouteDefinition[]): Promise<any> {
+    definitions.forEach(
+        (routeDefinition) => { this.registry.config(this.hostComponent, routeDefinition); });
     return this.renavigate();
   }
 
@@ -108,33 +160,73 @@ export class Router {
    * If the given URL begins with a `/`, router will navigate absolutely.
    * If the given URL does not begin with `/`, the router will navigate relative to this component.
    */
-  navigate(url: string): Promise<any> {
+  navigate(url: string, _skipLocationChange: boolean = false): Promise<any> {
     return this._currentNavigation = this._currentNavigation.then((_) => {
       this.lastNavigationAttempt = url;
       this._startNavigating();
-      return this._afterPromiseFinishNavigating(this.recognize(url).then((matchedInstruction) => {
-        if (isBlank(matchedInstruction)) {
+      return this._afterPromiseFinishNavigating(this.recognize(url).then((instruction) => {
+        if (isBlank(instruction)) {
           return false;
         }
-        return this._reuse(matchedInstruction)
-            .then((_) => this._canActivate(matchedInstruction))
-            .then((result) => {
-              if (!result) {
-                return false;
-              }
-              return this._canDeactivate(matchedInstruction)
-                  .then((result) => {
-                    if (result) {
-                      return this.commit(matchedInstruction)
-                          .then((_) => {
-                            this._emitNavigationFinish(matchedInstruction.accumulatedUrl);
-                            return true;
-                          });
-                    }
-                  });
-            });
+        return this._navigate(instruction, _skipLocationChange);
       }));
     });
+  }
+
+
+  /**
+   * Navigate via the provided instruction. Returns a promise that resolves when navigation is
+   * complete.
+   */
+  navigateInstruction(instruction: Instruction,
+                      _skipLocationChange: boolean = false): Promise<any> {
+    if (isBlank(instruction)) {
+      return _resolveToFalse;
+    }
+    return this._currentNavigation = this._currentNavigation.then((_) => {
+      this._startNavigating();
+      return this._afterPromiseFinishNavigating(this._navigate(instruction, _skipLocationChange));
+    });
+  }
+
+  _navigate(instruction: Instruction, _skipLocationChange: boolean): Promise<any> {
+    return this._settleInstruction(instruction)
+        .then((_) => this._canReuse(instruction))
+        .then((_) => this._canActivate(instruction))
+        .then((result) => {
+          if (!result) {
+            return false;
+          }
+          return this._canDeactivate(instruction)
+              .then((result) => {
+                if (result) {
+                  return this.commit(instruction, _skipLocationChange)
+                      .then((_) => {
+                        this._emitNavigationFinish(stringifyInstruction(instruction));
+                        return true;
+                      });
+                }
+              });
+        });
+  }
+
+  // TODO(btford): it'd be nice to remove this method as part of cleaning up the traversal logic
+  // Since refactoring `Router.generate` to return an instruction rather than a string, it's not
+  // guaranteed that the `componentType`s for the terminal async routes have been loaded by the time
+  // we begin navigation. The method below simply traverses instructions and resolves any components
+  // for which `componentType` is not present
+  _settleInstruction(instruction: Instruction): Promise<any> {
+    var unsettledInstructions: Array<Promise<any>> = [];
+    if (isBlank(instruction.component.componentType)) {
+      unsettledInstructions.push(instruction.component.resolveComponentType());
+    }
+    if (isPresent(instruction.child)) {
+      unsettledInstructions.push(this._settleInstruction(instruction.child));
+    }
+    StringMapWrapper.forEach(instruction.auxInstruction, (instruction, _) => {
+      unsettledInstructions.push(this._settleInstruction(instruction));
+    });
+    return PromiseWrapper.all(unsettledInstructions);
   }
 
   private _emitNavigationFinish(url): void { ObservableWrapper.callNext(this._subject, url); }
@@ -146,21 +238,24 @@ export class Router {
     });
   }
 
-  _reuse(instruction): Promise<any> {
+  /*
+   * Recursively set reuse flags
+   */
+  _canReuse(instruction: Instruction): Promise<any> {
     if (isBlank(this._outlet)) {
       return _resolveToFalse;
     }
-    return this._outlet.canReuse(instruction)
+    return this._outlet.canReuse(instruction.component)
         .then((result) => {
-          instruction.reuse = result;
-          if (isPresent(this._outlet.childRouter) && isPresent(instruction.child)) {
-            return this._outlet.childRouter._reuse(instruction.child);
+          instruction.component.reuse = result;
+          if (isPresent(this._childRouter) && isPresent(instruction.child)) {
+            return this._childRouter._canReuse(instruction.child);
           }
         });
   }
 
-  private _canActivate(instruction: Instruction): Promise<boolean> {
-    return canActivateOne(instruction, this._currentInstruction);
+  private _canActivate(nextInstruction: Instruction): Promise<boolean> {
+    return canActivateOne(nextInstruction, this._currentInstruction);
   }
 
   private _canDeactivate(instruction: Instruction): Promise<boolean> {
@@ -168,18 +263,26 @@ export class Router {
       return _resolveToTrue;
     }
     var next: Promise<boolean>;
-    if (isPresent(instruction) && instruction.reuse) {
+    var childInstruction: Instruction = null;
+    var reuse: boolean = false;
+    var componentInstruction: ComponentInstruction = null;
+    if (isPresent(instruction)) {
+      childInstruction = instruction.child;
+      componentInstruction = instruction.component;
+      reuse = instruction.component.reuse;
+    }
+    if (reuse) {
       next = _resolveToTrue;
     } else {
-      next = this._outlet.canDeactivate(instruction);
+      next = this._outlet.canDeactivate(componentInstruction);
     }
+    // TODO: aux route lifecycle hooks
     return next.then((result) => {
       if (result == false) {
         return false;
       }
-      if (isPresent(this._outlet.childRouter)) {
-        return this._outlet.childRouter._canDeactivate(isPresent(instruction) ? instruction.child :
-                                                                                null);
+      if (isPresent(this._childRouter)) {
+        return this._childRouter._canDeactivate(childInstruction);
       }
       return true;
     });
@@ -188,12 +291,32 @@ export class Router {
   /**
    * Updates this router and all descendant routers according to the given instruction
    */
-  commit(instruction: Instruction): Promise<any> {
+  commit(instruction: Instruction, _skipLocationChange: boolean = false): Promise<any> {
     this._currentInstruction = instruction;
+    var next: Promise<any> = _resolveToTrue;
     if (isPresent(this._outlet)) {
-      return this._outlet.commit(instruction);
+      var componentInstruction = instruction.component;
+      if (componentInstruction.reuse) {
+        next = this._outlet.reuse(componentInstruction);
+      } else {
+        next =
+            this.deactivate(instruction).then((_) => this._outlet.activate(componentInstruction));
+      }
+      if (isPresent(instruction.child)) {
+        next = next.then((_) => {
+          if (isPresent(this._childRouter)) {
+            return this._childRouter.commit(instruction.child);
+          }
+        });
+      }
     }
-    return _resolveToTrue;
+
+    var promises = [];
+    MapWrapper.forEach(this._auxRouters, (router, name) => {
+      promises.push(router.commit(instruction.auxInstruction[name]));
+    });
+
+    return next.then((_) => PromiseWrapper.all(promises));
   }
 
 
@@ -205,17 +328,32 @@ export class Router {
   /**
    * Subscribe to URL updates from the router
    */
-  subscribe(onNext): void { ObservableWrapper.subscribe(this._subject, onNext); }
+  subscribe(onNext: (value: any) => void): Object {
+    return ObservableWrapper.subscribe(this._subject, onNext);
+  }
 
 
   /**
    * Removes the contents of this router's outlet and all descendant outlets
    */
   deactivate(instruction: Instruction): Promise<any> {
-    if (isPresent(this._outlet)) {
-      return this._outlet.deactivate(instruction);
+    var childInstruction: Instruction = null;
+    var componentInstruction: ComponentInstruction = null;
+    if (isPresent(instruction)) {
+      childInstruction = instruction.child;
+      componentInstruction = instruction.component;
     }
-    return _resolveToTrue;
+    var next: Promise<any> = _resolveToTrue;
+    if (isPresent(this._childRouter)) {
+      next = this._childRouter.deactivate(childInstruction);
+    }
+    if (isPresent(this._outlet)) {
+      next = next.then((_) => this._outlet.deactivate(componentInstruction));
+    }
+
+    // TODO: handle aux routes
+
+    return next;
   }
 
 
@@ -243,7 +381,7 @@ export class Router {
    * Generate a URL from a component name and optional map of parameters. The URL is relative to the
    * app's base href.
    */
-  generate(linkParams: List<any>): string {
+  generate(linkParams: any[]): Instruction {
     let normalizedLinkParams = splitAndFlattenLinkParams(linkParams);
 
     var first = ListWrapper.first(normalizedLinkParams);
@@ -281,11 +419,22 @@ export class Router {
       throw new BaseException(msg);
     }
 
-    let url = '';
-    if (isPresent(router.parent) && isPresent(router.parent._currentInstruction)) {
-      url = router.parent._currentInstruction.capturedUrl;
+    // TODO: structural cloning and whatnot
+
+    var url = [];
+    var parent = router.parent;
+    while (isPresent(parent)) {
+      url.unshift(parent._currentInstruction);
+      parent = parent.parent;
     }
-    return url + '/' + this.registry.generate(rest, router.hostComponent);
+
+    var nextInstruction = this.registry.generate(rest, router.hostComponent);
+
+    while (url.length > 0) {
+      nextInstruction = url.pop().replaceChild(nextInstruction);
+    }
+
+    return nextInstruction;
   }
 }
 
@@ -296,14 +445,22 @@ export class RootRouter extends Router {
               hostComponent: Type) {
     super(registry, pipeline, null, hostComponent);
     this._location = location;
-    this._location.subscribe((change) => this.navigate(change['url']));
+    this._location.subscribe((change) => this.navigate(change['url'], isPresent(change['pop'])));
+
     this.registry.configFromComponent(hostComponent);
     this.navigate(location.path());
   }
 
-  commit(instruction): Promise<any> {
-    return super.commit(instruction)
-        .then((_) => { this._location.go(instruction.accumulatedUrl); });
+  commit(instruction: Instruction, _skipLocationChange: boolean = false): Promise<any> {
+    var emitUrl = stringifyInstruction(instruction);
+    if (emitUrl.length > 0) {
+      emitUrl = '/' + emitUrl;
+    }
+    var promise = super.commit(instruction);
+    if (!_skipLocationChange) {
+      promise = promise.then((_) => { this._location.go(emitUrl); });
+    }
+    return promise;
   }
 }
 
@@ -314,9 +471,15 @@ class ChildRouter extends Router {
   }
 
 
-  navigate(url: string): Promise<any> {
+  navigate(url: string, _skipLocationChange: boolean = false): Promise<any> {
     // Delegate navigation to the root router
-    return this.parent.navigate(url);
+    return this.parent.navigate(url, _skipLocationChange);
+  }
+
+  navigateInstruction(instruction: Instruction,
+                      _skipLocationChange: boolean = false): Promise<any> {
+    // Delegate navigation to the root router
+    return this.parent.navigateInstruction(instruction, _skipLocationChange);
   }
 }
 
@@ -325,32 +488,34 @@ class ChildRouter extends Router {
  * Returns: ['', 'a', 'b', {c: 2}]
  */
 var SLASH = new RegExp('/');
-function splitAndFlattenLinkParams(linkParams: List<any>): List<any> {
+function splitAndFlattenLinkParams(linkParams: any[]): any[] {
   return ListWrapper.reduce(linkParams, (accumulation, item) => {
     if (isString(item)) {
-      return ListWrapper.concat(accumulation, StringWrapper.split(item, SLASH));
+      return accumulation.concat(StringWrapper.split(item, SLASH));
     }
     accumulation.push(item);
     return accumulation;
   }, []);
 }
 
-function canActivateOne(nextInstruction, currentInstruction): Promise<boolean> {
+function canActivateOne(nextInstruction: Instruction, prevInstruction: Instruction):
+    Promise<boolean> {
   var next = _resolveToTrue;
   if (isPresent(nextInstruction.child)) {
     next = canActivateOne(nextInstruction.child,
-                          isPresent(currentInstruction) ? currentInstruction.child : null);
+                          isPresent(prevInstruction) ? prevInstruction.child : null);
   }
-  return next.then((res) => {
-    if (res == false) {
+  return next.then((result) => {
+    if (result == false) {
       return false;
     }
-    if (nextInstruction.reuse) {
+    if (nextInstruction.component.reuse) {
       return true;
     }
-    var hook = getCanActivateHook(nextInstruction.component);
+    var hook = getCanActivateHook(nextInstruction.component.componentType);
     if (isPresent(hook)) {
-      return hook(nextInstruction, currentInstruction);
+      return hook(nextInstruction.component,
+                  isPresent(prevInstruction) ? prevInstruction.component : null);
     }
     return true;
   });

@@ -1,3 +1,5 @@
+var sauceConf = require('./sauce.conf');
+
 // Karma configuration
 // Generated on Thu Sep 25 2014 11:52:02 GMT-0700 (PDT)
 module.exports = function(config) {
@@ -25,6 +27,7 @@ module.exports = function(config) {
 
     exclude: [
       'dist/dart/**/packages/**',
+      'modules/angular1_router/**'
     ],
 
     karmaDartImports: {
@@ -42,17 +45,15 @@ module.exports = function(config) {
       '/packages/path': '/base/packages/path',
 
       // Local dependencies, transpiled from the source.
+      '/packages/angular2/test/': '/base/dist/dart/angular2/test/',
       '/packages/angular2': '/base/dist/dart/angular2/lib',
+      '/packages/http': '/base/dist/dart/http/lib',
       '/packages/angular2_material': '/base/dist/dart/angular2_material/lib',
       '/packages/benchpress': '/base/dist/dart/benchpress/lib',
       '/packages/examples': '/base/dist/dart/examples/lib'
     },
 
-    customLaunchers: {
-      DartiumWithWebPlatform: {
-        base: 'Dartium',
-        flags: ['--enable-experimental-web-platform-features'] }
-    },
+    customLaunchers: sauceConf.customLaunchers,
     browsers: ['DartiumWithWebPlatform'],
 
     port: 9877

@@ -1,8 +1,9 @@
-import {CONST_EXPR, CONST, isPresent} from 'angular2/src/facade/lang';
+import {CONST_EXPR, CONST, isPresent, isString} from 'angular2/src/core/facade/lang';
 import {Headers} from './headers';
 import {RequestModesOpts, RequestMethods, RequestCacheOpts, RequestCredentialsOpts} from './enums';
-import {IRequestOptions} from './interfaces';
-import {Injectable} from 'angular2/di';
+import {RequestOptionsArgs} from './interfaces';
+import {Injectable} from 'angular2/src/core/di';
+import {URLSearchParams} from './url_search_params';
 
 /**
  * Creates a request options object similar to the `RequestInit` description
@@ -12,7 +13,7 @@ import {Injectable} from 'angular2/di';
  *
  * All values are null by default.
  */
-export class RequestOptions implements IRequestOptions {
+export class RequestOptions {
   /**
    * Http method with which to execute the request.
    *
@@ -33,7 +34,9 @@ export class RequestOptions implements IRequestOptions {
   credentials: RequestCredentialsOpts;
   cache: RequestCacheOpts;
   url: string;
-  constructor({method, headers, body, mode, credentials, cache, url}: IRequestOptions = {}) {
+  search: URLSearchParams;
+  constructor({method, headers, body, mode, credentials, cache, url, search}:
+                  RequestOptionsArgs = {}) {
     this.method = isPresent(method) ? method : null;
     this.headers = isPresent(headers) ? headers : null;
     this.body = isPresent(body) ? body : null;
@@ -41,13 +44,16 @@ export class RequestOptions implements IRequestOptions {
     this.credentials = isPresent(credentials) ? credentials : null;
     this.cache = isPresent(cache) ? cache : null;
     this.url = isPresent(url) ? url : null;
+    this.search = isPresent(search) ? (isString(search) ? new URLSearchParams(<string>(search)) :
+                                                          <URLSearchParams>(search)) :
+                                      null;
   }
 
   /**
    * Creates a copy of the `RequestOptions` instance, using the optional input as values to override
    * existing values.
    */
-  merge(options?: IRequestOptions): RequestOptions {
+  merge(options?: RequestOptionsArgs): RequestOptions {
     return new RequestOptions({
       method: isPresent(options) && isPresent(options.method) ? options.method : this.method,
       headers: isPresent(options) && isPresent(options.headers) ? options.headers : this.headers,
@@ -56,7 +62,11 @@ export class RequestOptions implements IRequestOptions {
       credentials: isPresent(options) && isPresent(options.credentials) ? options.credentials :
                                                                           this.credentials,
       cache: isPresent(options) && isPresent(options.cache) ? options.cache : this.cache,
-      url: isPresent(options) && isPresent(options.url) ? options.url : this.url
+      url: isPresent(options) && isPresent(options.url) ? options.url : this.url,
+      search: isPresent(options) && isPresent(options.search) ?
+                  (isString(options.search) ? new URLSearchParams(<string>(options.search)) :
+                                              (<URLSearchParams>(options.search)).clone()) :
+                  this.search
     });
   }
 }
@@ -82,6 +92,6 @@ export class RequestOptions implements IRequestOptions {
 @Injectable()
 export class BaseRequestOptions extends RequestOptions {
   constructor() {
-    super({method: RequestMethods.GET, headers: new Headers(), mode: RequestModesOpts.Cors});
+    super({method: RequestMethods.Get, headers: new Headers(), mode: RequestModesOpts.Cors});
   }
 }

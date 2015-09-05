@@ -1,5 +1,7 @@
-import {List, ListWrapper, StringMapWrapper} from 'angular2/src/facade/collection';
-import {normalizeBlank, isPresent, global} from 'angular2/src/facade/lang';
+import {ListWrapper, StringMapWrapper} from 'angular2/src/core/facade/collection';
+import {normalizeBlank, isPresent, global} from 'angular2/src/core/facade/lang';
+import {wtfLeave, wtfCreateScope, WtfScopeFn} from '../profile/profile';
+
 
 export interface NgZoneZone extends Zone { _innerZone: boolean; }
 
@@ -13,6 +15,9 @@ export interface NgZoneZone extends Zone { _innerZone: boolean; }
  * `Zone`. The default `onTurnDone` runs the Angular change detection.
  */
 export class NgZone {
+  _runScope: WtfScopeFn = wtfCreateScope(`NgZone#run()`);
+  _microtaskScope: WtfScopeFn = wtfCreateScope(`NgZone#microtask()`);
+
   // Code executed in _mountZone does not trigger the onTurnDone.
   _mountZone;
   // _innerZone is the child of _mountZone. Any code executed in this zone will trigger the
@@ -39,6 +44,8 @@ export class NgZone {
   _disabled: boolean;
 
   _inVmTurnDone: boolean = false;
+
+  _pendingTimeouts: number[] = [];
 
   /**
    * Associates with this
@@ -86,15 +93,24 @@ export class NgZone {
   }
 
   /**
-   * Sets the zone hook that is called immediately after the last turn in the
-   * current event completes. At this point Angular will no longer attempt to
+   * Sets the zone hook that is called immediately after the last turn in
+   * an event completes. At this point Angular will no longer attempt to
    * sync the UI. Any changes to the data model will not be reflected in the
-   * DOM. {@link onEventDoneFn} is executed outside Angular zone.
+   * DOM. `onEventDoneFn` is executed outside Angular zone.
    *
    * This hook is useful for validating application state (e.g. in a test).
    */
-  overrideOnEventDone(onEventDoneFn: Function): void {
-    this._onEventDone = normalizeBlank(onEventDoneFn);
+  overrideOnEventDone(onEventDoneFn: Function, opt_waitForAsync: boolean): void {
+    var normalizedOnEventDone = normalizeBlank(onEventDoneFn);
+    if (opt_waitForAsync) {
+      this._onEventDone = () => {
+        if (!this._pendingTimeouts.length) {
+          normalizedOnEventDone();
+        }
+      };
+    } else {
+      this._onEventDone = normalizedOnEventDone;
+    }
   }
 
   /**
@@ -121,11 +137,16 @@ export class NgZone {
    * });
    * ```
    */
-  run(fn): any {
+  run(fn: () => any): any {
     if (this._disabled) {
       return fn();
     } else {
-      return this._innerZone.run(fn);
+      var s = this._runScope();
+      try {
+        return this._innerZone.run(fn);
+      } finally {
+        wtfLeave(s);
+      }
     }
   }
 
@@ -138,14 +159,14 @@ export class NgZone {
    * ```
    * var zone: NgZone = [ref to the application zone];
    *
-   * zone.runOusideAngular(() => {
+   * zone.runOutsideAngular(() => {
    *   element.onClick(() => {
    *     // Clicking on the element would not trigger the change detection
    *   });
    * });
    * ```
    */
-  runOutsideAngular(fn): any {
+  runOutsideAngular(fn: () => any): any {
     if (this._disabled) {
       return fn();
     } else {
@@ -154,6 +175,7 @@ export class NgZone {
   }
 
   _createInnerZone(zone, enableLongStackTrace) {
+    var microtaskScope = this._microtaskScope;
     var ngZone = this;
     var errorHandling;
 
@@ -206,13 +228,33 @@ export class NgZone {
             return function(fn) {
               ngZone._pendingMicrotasks++;
               var microtask = function() {
+                var s = microtaskScope();
                 try {
                   fn();
                 } finally {
                   ngZone._pendingMicrotasks--;
+                  wtfLeave(s);
                 }
               };
               parentScheduleMicrotask.call(this, microtask);
+            };
+          },
+          '$setTimeout': function(parentSetTimeout) {
+            return function(fn: Function, delay: number, ...args) {
+              var id;
+              var cb = function() {
+                fn();
+                ListWrapper.remove(ngZone._pendingTimeouts, id);
+              };
+              id = parentSetTimeout(cb, delay, args);
+              ngZone._pendingTimeouts.push(id);
+              return id;
+            };
+          },
+          '$clearTimeout': function(parentClearTimeout) {
+            return function(id: number) {
+              parentClearTimeout(id);
+              ListWrapper.remove(ngZone._pendingTimeouts, id);
             };
           },
           _innerZone: true

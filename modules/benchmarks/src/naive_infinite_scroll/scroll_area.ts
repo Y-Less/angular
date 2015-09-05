@@ -1,5 +1,5 @@
-import {ListWrapper} from 'angular2/src/facade/collection';
-import {Math} from 'angular2/src/facade/math';
+import {ListWrapper} from 'angular2/src/core/facade/collection';
+import {Math} from 'angular2/src/core/facade/math';
 
 import {Component, Directive, View} from 'angular2/angular2';
 
@@ -14,7 +14,7 @@ import {
 } from './common';
 import {generateOfferings} from './random_data';
 import {ScrollItemComponent} from './scroll_item';
-import {NgFor} from 'angular2/directives';
+import {NgFor} from 'angular2/core';
 
 @Component({
   selector: 'scroll-area',
@@ -38,8 +38,8 @@ import {NgFor} from 'angular2/directives';
     </div>`
 })
 export class ScrollAreaComponent {
-  _fullList: List<Offering>;
-  visibleItems: List<Offering>;
+  _fullList: Offering[];
+  visibleItems: Offering[];
 
   viewPortHeight: number;
   paddingDiv;

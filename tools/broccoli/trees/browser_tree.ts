@@ -2,16 +2,16 @@
 
 var Funnel = require('broccoli-funnel');
 var htmlReplace = require('../html-replace');
-var jsReplace = require("../js-replace");
+var jsReplace = require('../js-replace');
 var path = require('path');
 var stew = require('broccoli-stew');
+var traceur = require('traceur');
 
 import compileWithTypescript from '../broccoli-typescript';
 import destCopy from '../broccoli-dest-copy';
 import flatten from '../broccoli-flatten';
 import mergeTrees from '../broccoli-merge-trees';
 import replace from '../broccoli-replace';
-import {default as transpileWithTraceur, TRACEUR_RUNTIME_PATH} from '../traceur/index';
 
 
 var projectRootDir = path.normalize(path.join(__dirname, '..', '..', '..', '..'));
@@ -28,6 +28,7 @@ const kServedPaths = [
   'benchmarks/src/largetable',
   'benchmarks/src/naive_infinite_scroll',
   'benchmarks/src/tree',
+  'benchmarks/src/static_tree',
 
   // Relative (to /modules) paths to external benchmark directories
   'benchmarks_external/src',
@@ -36,6 +37,7 @@ const kServedPaths = [
   'benchmarks_external/src/naive_infinite_scroll',
   'benchmarks_external/src/tree',
   'benchmarks_external/src/tree/react',
+  'benchmarks_external/src/static_tree',
 
   // Relative (to /modules) paths to example directories
   'examples/src/benchpress',
@@ -48,9 +50,11 @@ const kServedPaths = [
   'examples/src/http',
   'examples/src/jsonp',
   'examples/src/key_events',
+  'examples/src/routing',
   'examples/src/sourcemap',
   'examples/src/todo',
   'examples/src/zippy_component',
+  'examples/src/async',
   'examples/src/material/button',
   'examples/src/material/checkbox',
   'examples/src/material/dialog',
@@ -59,14 +63,32 @@ const kServedPaths = [
   'examples/src/material/progress-linear',
   'examples/src/material/radio',
   'examples/src/material/switcher',
-  'examples/src/message_broker'
+  'examples/src/web_workers/kitchen_sink',
+  'examples/src/web_workers/todo',
+  'examples/src/web_workers/images',
+  'examples/src/web_workers/message_broker'
 ];
 
 
 module.exports = function makeBrowserTree(options, destinationPath) {
-  var modulesTree = new Funnel(
-      'modules',
-      {include: ['**/**'], exclude: ['**/*.cjs', 'benchmarks/e2e_test/**'], destDir: '/'});
+  var modulesTree = new Funnel('modules', {
+    include: ['**/**'],
+    exclude: [
+      '**/*.cjs',
+      'benchmarks/e2e_test/**',
+      'angular1_router/**',
+      // Exclude ES6 polyfill typings when tsc target=ES6
+      'angular2/manual_typings/traceur-runtime.d.ts',
+      'angular2/typings/es6-promise/**'
+    ],
+    destDir: '/'
+  });
+
+  var es5ModulesTree = new Funnel('modules', {
+    include: ['**/**'],
+    exclude: ['**/*.cjs', 'angular1_router/**', 'benchmarks/e2e_test/**'],
+    destDir: '/'
+  });
 
   var scriptPathPatternReplacement = {
     match: '@@FILENAME_NO_EXT',
@@ -81,28 +103,34 @@ module.exports = function makeBrowserTree(options, destinationPath) {
   });
 
   // Use TypeScript to transpile the *.ts files to ES6
-  // We don't care about errors: we let the TypeScript compilation to ES5
-  // in node_tree.ts do the type-checking.
   var es6Tree = compileWithTypescript(modulesTree, {
     allowNonTsExtensions: false,
-    declaration: true,
+    declaration: false,
     emitDecoratorMetadata: true,
-    mapRoot: '',           // force sourcemaps to use relative path
-    noEmitOnError: false,  // temporarily ignore errors, we type-check only via cjs build
+    mapRoot: '',  // force sourcemaps to use relative path
+    noEmitOnError: false,
     rootDir: '.',
     sourceMap: true,
     sourceRoot: '.',
     target: 'ES6'
   });
 
-  // Call Traceur again to lower the ES6 build tree to ES5
-  var es5Tree = transpileWithTraceur(es6Tree, {
-    destExtension: '.js',
-    destSourceMapExtension: '.js.map',
-    traceurOptions: {modules: 'instantiate', sourceMaps: true}
+  // Use TypeScript to transpile the *.ts files to ES5
+  var es5Tree = compileWithTypescript(es5ModulesTree, {
+    allowNonTsExtensions: false,
+    declaration: false,
+    emitDecoratorMetadata: true,
+    experimentalDecorators: true,
+    mapRoot: '',  // force sourcemaps to use relative path
+    module: 'CommonJS',
+    noEmitOnError: false,
+    rootDir: '.',
+    sourceMap: true,
+    sourceRoot: '.',
+    target: 'ES5'
   });
 
-  // Now we add a few more files to the es6 tree that Traceur should not see
+  // Now we add a few more files to the es6 tree that the es5 tree should not see
   ['angular2', 'rtts_assert'].forEach(function(destDir) {
     var extras = new Funnel('tools/build', {files: ['es5build.js'], destDir: destDir});
     es6Tree = mergeTrees([es6Tree, extras]);
@@ -112,14 +140,11 @@ module.exports = function makeBrowserTree(options, destinationPath) {
     files: [
       'node_modules/zone.js/dist/zone-microtask.js',
       'node_modules/zone.js/dist/long-stack-trace-zone.js',
-      'node_modules/es6-module-loader/dist/es6-module-loader-sans-promises.src.js',
       'node_modules/systemjs/dist/system.src.js',
-      'node_modules/systemjs/lib/extension-register.js',
-      'node_modules/systemjs/lib/extension-cjs.js',
       'node_modules/rx/dist/rx.js',
+      'node_modules/base64-js/lib/b64.js',
       'node_modules/reflect-metadata/Reflect.js',
-      'tools/build/snippets/runtime_paths.js',
-      path.relative(projectRootDir, TRACEUR_RUNTIME_PATH)
+      path.relative(projectRootDir, traceur.RUNTIME_PATH)
     ]
   }));
 
@@ -186,6 +211,7 @@ module.exports = function makeBrowserTree(options, destinationPath) {
   htmlTree = mergeTrees([htmlTree, scripts, polymer, react]);
 
   es5Tree = mergeTrees([es5Tree, htmlTree, assetsTree]);
+  es6Tree = mergeTrees([es6Tree, htmlTree, assetsTree]);
 
   var mergedTree = mergeTrees([stew.mv(es6Tree, '/es6'), stew.mv(es5Tree, '/es5')]);
 

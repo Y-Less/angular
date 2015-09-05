@@ -1,6 +1,7 @@
 import {describe, it, expect, beforeEach, ddescribe, iit, xit, el} from 'angular2/test_lib';
 
-import {List, MapWrapper, ListWrapper, iterateListLike} from 'angular2/src/facade/collection';
+import {MapWrapper, ListWrapper, iterateListLike} from 'angular2/src/core/facade/collection';
+import {StringWrapper} from 'angular2/src/core/facade/lang';
 import {QueryList} from 'angular2/src/core/compiler/query_list';
 
 
@@ -43,6 +44,14 @@ export function main() {
       expect(queryList.map((x) => x)).toEqual(['one', 'two']);
     });
 
+    it('should support toString', () => {
+      queryList.add('one');
+      queryList.add('two');
+      var listString = queryList.toString();
+      expect(StringWrapper.contains(listString, 'one')).toBeTruthy();
+      expect(StringWrapper.contains(listString, 'two')).toBeTruthy();
+    });
+
     it('should support first and last', () => {
       queryList.add('one');
       queryList.add('two');
@@ -82,6 +91,19 @@ export function main() {
         queryList.add('two');
         queryList.fireCallbacks();
         expect(fires).toEqual(1);
+      });
+
+      it('should support removing all callbacks', () => {
+        var fires = 0;
+        var callback = () => fires += 1;
+        queryList.onChange(callback);
+
+        queryList.add('one');
+        queryList.removeAllCallbacks();
+
+        queryList.fireCallbacks();
+
+        expect(fires).toEqual(0);
       });
     });
   });

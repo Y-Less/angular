@@ -17,14 +17,16 @@ import {
 } from 'angular2/test_lib';
 import {AppViewPool} from 'angular2/src/core/compiler/view_pool';
 import {AppProtoView, AppView} from 'angular2/src/core/compiler/view';
-import {MapWrapper, Map} from 'angular2/src/facade/collection';
+import {MapWrapper, Map} from 'angular2/src/core/facade/collection';
 
 export function main() {
   describe('AppViewPool', () => {
 
     function createViewPool({capacity}): AppViewPool { return new AppViewPool(capacity); }
 
-    function createProtoView() { return new AppProtoView(null, null, null, null, null); }
+    function createProtoView() {
+      return new AppProtoView(null, null, null, null, null, null, null, null);
+    }
 
     function createView(pv) {
       return new AppView(null, pv, null, null, null, null, new Map(), null, null);

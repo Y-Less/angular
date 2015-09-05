@@ -10,21 +10,19 @@ import {
   xdescribe,
   expect,
   beforeEach,
-  SpyObject,
-  proxy,
   inject,
   AsyncTestCompleter,
   el,
   containsRegexp
 } from 'angular2/test_lib';
-import {isBlank, isPresent, IMPLEMENTS, stringify} from 'angular2/src/facade/lang';
+import {SpyView, SpyElementRef} from '../spies';
+import {isBlank, isPresent, stringify} from 'angular2/src/core/facade/lang';
 import {
   ListWrapper,
   MapWrapper,
-  List,
   StringMapWrapper,
   iterateListLike
-} from 'angular2/src/facade/collection';
+} from 'angular2/src/core/facade/collection';
 import {
   ProtoElementInjector,
   ElementInjector,
@@ -32,39 +30,38 @@ import {
   DirectiveBinding,
   TreeNode
 } from 'angular2/src/core/compiler/element_injector';
-import * as dirAnn from 'angular2/src/core/annotations_impl/annotations';
 import {
   Attribute,
   Query,
-  Component,
-  Directive,
-  LifecycleEvent
-} from 'angular2/annotations';
-import {bind, Injector, Binding, Optional, Inject, Injectable, Self, Parent, Ancestor, Unbounded, InjectMetadata, ParentMetadata} from 'angular2/di';
-import {AppProtoView, AppView} from 'angular2/src/core/compiler/view';
+  ViewQuery,
+  ComponentMetadata,
+  DirectiveMetadata
+} from 'angular2/src/core/metadata';
+import {OnDestroy} from 'angular2/lifecycle_hooks';
+import {bind, Injector, Binding, Optional, Inject, Injectable, Self, SkipSelf, InjectMetadata, Host, HostMetadata, SkipSelfMetadata} from 'angular2/core';
 import {ViewContainerRef} from 'angular2/src/core/compiler/view_container_ref';
-import {ProtoViewRef} from 'angular2/src/core/compiler/view_ref';
+import {TemplateRef} from 'angular2/src/core/compiler/template_ref';
 import {ElementRef} from 'angular2/src/core/compiler/element_ref';
-import {DynamicChangeDetector, ChangeDetectorRef, Parser, Lexer} from 'angular2/change_detection';
+import {DynamicChangeDetector, ChangeDetectorRef, Parser, Lexer} from 'angular2/src/core/change_detection/change_detection';
 import {QueryList} from 'angular2/src/core/compiler/query_list';
+import {AppView, AppViewContainer} from "angular2/src/core/compiler/view";
 
-@proxy
-@IMPLEMENTS(AppView)
-class DummyView extends SpyObject {
-  changeDetector;
-  constructor() {
-    super(AppView);
-    this.changeDetector = null;
-  }
-  noSuchMethod(m) { return super.noSuchMethod(m); }
+function createDummyView(detector = null): AppView {
+  var res = new SpyView();
+  res.prop("changeDetector", detector);
+  res.prop("elementOffset", 0);
+  res.prop("elementInjectors", []);
+  res.prop("viewContainers", []);
+  res.prop("ownBindersCount", 0);
+  return <any> res;
 }
 
-@proxy
-@IMPLEMENTS(ElementRef)
-class DummyElementRef extends SpyObject {
-  boundElementIndex: number = 0;
-  constructor() { super(ElementRef); }
-  noSuchMethod(m) { return super.noSuchMethod(m); }
+function addInj(view, inj) {
+  var injs: ElementInjector[] = view.elementInjectors;
+  injs.push(inj);
+  var containers: AppViewContainer[] = view.viewContainers;
+  containers.push(null);
+  view.prop("ownBindersCount", view.ownBindersCount + 1);
 }
 
 @Injectable()
@@ -78,7 +75,7 @@ class SomeOtherDirective {}
 var _constructionCount = 0;
 @Injectable()
 class CountingDirective {
-  count;
+  count: number;
   constructor() {
     this.count = _constructionCount;
     _constructionCount += 1;
@@ -103,27 +100,15 @@ class OptionallyNeedsDirective {
 }
 
 @Injectable()
-class NeedsDirectiveFromParent {
+class NeeedsDirectiveFromHost {
   dependency: SimpleDirective;
-  constructor(@Parent() dependency: SimpleDirective) { this.dependency = dependency; }
+  constructor(@Host() dependency: SimpleDirective) { this.dependency = dependency; }
 }
 
 @Injectable()
-class NeedsDirectiveFromParentOrSelf {
+class NeedsDirectiveFromHostShadowDom {
   dependency: SimpleDirective;
-  constructor(@Parent({self: true}) dependency: SimpleDirective) { this.dependency = dependency; }
-}
-
-@Injectable()
-class NeedsDirectiveFromAncestor {
-  dependency: SimpleDirective;
-  constructor(@Ancestor() dependency: SimpleDirective) { this.dependency = dependency; }
-}
-
-@Injectable()
-class NeedsDirectiveFromAnAncestorShadowDom {
-  dependency: SimpleDirective;
-  constructor(@Unbounded() dependency: SimpleDirective) { this.dependency = dependency; }
+  constructor(dependency: SimpleDirective) { this.dependency = dependency; }
 }
 
 @Injectable()
@@ -133,19 +118,14 @@ class NeedsService {
 }
 
 @Injectable()
-class NeedsAncestorService {
+class NeedsServiceFromHost {
   service: any;
-  constructor(@Ancestor() @Inject("service") service) { this.service = service; }
+  constructor(@Host() @Inject("service") service) { this.service = service; }
 }
 
 class HasEventEmitter {
   emitter;
   constructor() { this.emitter = "emitter"; }
-}
-
-class HasHostAction {
-  hostActionName;
-  constructor() { this.hostActionName = "hostAction"; }
 }
 
 class NeedsAttribute {
@@ -173,9 +153,21 @@ class NeedsQuery {
 }
 
 @Injectable()
+class NeedsViewQuery {
+  query: QueryList<CountingDirective>;
+  constructor(@ViewQuery(CountingDirective) query: QueryList<CountingDirective>) { this.query = query; }
+}
+
+@Injectable()
 class NeedsQueryByVarBindings {
   query: QueryList<any>;
   constructor(@Query("one,two") query: QueryList<any>) { this.query = query; }
+}
+
+@Injectable()
+class NeedsTemplateRefQuery {
+  query: QueryList<TemplateRef>;
+  constructor(@Query(TemplateRef) query: QueryList<TemplateRef>) { this.query = query; }
 }
 
 @Injectable()
@@ -191,27 +183,30 @@ class NeedsViewContainer {
 }
 
 @Injectable()
-class NeedsProtoViewRef {
-  protoViewRef;
-  constructor(ref: ProtoViewRef) { this.protoViewRef = ref; }
+class NeedsTemplateRef {
+  templateRef;
+  constructor(ref: TemplateRef) { this.templateRef = ref; }
 }
 
 @Injectable()
-class OptionallyInjectsProtoViewRef {
-  protoViewRef;
-  constructor(@Optional() ref: ProtoViewRef) { this.protoViewRef = ref; }
+class OptionallyInjectsTemplateRef {
+  templateRef;
+  constructor(@Optional() ref: TemplateRef) { this.templateRef = ref; }
 }
 
 @Injectable()
 class DirectiveNeedsChangeDetectorRef {
-  changeDetectorRef;
-  constructor(cdr: ChangeDetectorRef) { this.changeDetectorRef = cdr; }
+  constructor(public changeDetectorRef: ChangeDetectorRef) {}
 }
 
 @Injectable()
 class ComponentNeedsChangeDetectorRef {
-  changeDetectorRef;
-  constructor(cdr: ChangeDetectorRef) { this.changeDetectorRef = cdr; }
+  constructor(public changeDetectorRef: ChangeDetectorRef) {}
+}
+
+@Injectable()
+class PipeNeedsChangeDetectorRef {
+  constructor(public changeDetectorRef: ChangeDetectorRef) {}
 }
 
 class A_Needs_B {
@@ -222,7 +217,7 @@ class B_Needs_A {
   constructor(dep) {}
 }
 
-class DirectiveWithDestroy {
+class DirectiveWithDestroy implements OnDestroy {
   onDestroyCounter: number;
 
   constructor() { this.onDestroyCounter = 0; }
@@ -230,24 +225,15 @@ class DirectiveWithDestroy {
   onDestroy() { this.onDestroyCounter++; }
 }
 
-class TestNode extends TreeNode<TestNode> {
-  message: string;
-  constructor(parent: TestNode, message) {
-    super(parent);
-    this.message = message;
-  }
-  toString() { return this.message; }
-}
-
 export function main() {
-  var defaultPreBuiltObjects = new PreBuiltObjects(null, <any>new DummyView(), <any>new DummyElementRef(), null);
+  var defaultPreBuiltObjects = new PreBuiltObjects(null, createDummyView(), <any>new SpyElementRef(), null);
 
   // An injector with more than 10 bindings will switch to the dynamic strategy
   var dynamicBindings = [];
 
   for (var i = 0; i < 20; i++) {
     dynamicBindings.push(bind(i).toValue(i));
-  }      
+  }
 
   function createPei(parent, index, bindings, distance = 1, hasShadowRoot = false, dirVariableBindings = null) {
     var directiveBinding = ListWrapper.map(bindings, b => {
@@ -256,15 +242,6 @@ export function main() {
       return DirectiveBinding.createFromType(b, null);
     });
     return ProtoElementInjector.create(parent, index, directiveBinding, hasShadowRoot, distance, dirVariableBindings);
-  }
-
-  function humanize(tree: TreeNode<any>, names: List<List<any>>) {
-    var lookupName = (item) =>
-        ListWrapper.last(ListWrapper.find(names, (pair) => pair[0] === item));
-
-    if (tree.children.length == 0) return lookupName(tree);
-    var children = tree.children.map(m => humanize(m, names));
-    return [lookupName(tree), children];
   }
 
   function injector(bindings, imperativelyCreatedInjector = null, isComponent: boolean = false,
@@ -278,7 +255,7 @@ export function main() {
     return inj;
   }
 
-  function parentChildInjectors(parentBindings, childBindings, parentPreBuildObjects = null) {
+  function parentChildInjectors(parentBindings, childBindings, parentPreBuildObjects = null, imperativelyCreatedInjector = null) {
     if (isBlank(parentPreBuildObjects)) parentPreBuildObjects = defaultPreBuiltObjects;
 
     var protoParent = createPei(null, 0, parentBindings);
@@ -288,93 +265,38 @@ export function main() {
 
     var protoChild = createPei(protoParent, 1, childBindings, 1, false);
     var child = protoChild.instantiate(parent);
-    child.hydrate(null, null, defaultPreBuiltObjects);
+    child.hydrate(imperativelyCreatedInjector, null, defaultPreBuiltObjects);
 
     return child;
   }
 
-  function hostShadowInjectors(hostBindings: List<any>,
-                               shadowBindings: List<any>): ElementInjector {
+  function hostShadowInjectors(hostBindings: any[],
+                               shadowBindings: any[], imperativelyCreatedInjector = null): ElementInjector {
     var protoHost = createPei(null, 0, hostBindings, 0, true);
     var host = protoHost.instantiate(null);
     host.hydrate(null, null, defaultPreBuiltObjects);
 
     var protoShadow = createPei(null, 0, shadowBindings, 0, false);
     var shadow = protoShadow.instantiate(null);
-    shadow.hydrate(null, host, null);
+    shadow.hydrate(imperativelyCreatedInjector, host, null);
 
     return shadow;
   }
 
   describe('TreeNodes', () => {
-    var root, firstParent, lastParent, node;
+    var root, child;
 
-    /*
-     Build a tree of the following shape:
-     root
-      - p1
-         - c1
-         - c2
-      - p2
-        - c3
-     */
     beforeEach(() => {
-      root = new TestNode(null, 'root');
-      var p1 = firstParent = new TestNode(root, 'p1');
-      var p2 = lastParent = new TestNode(root, 'p2');
-      node = new TestNode(p1, 'c1');
-      new TestNode(p1, 'c2');
-      new TestNode(p2, 'c3');
+      root = new TreeNode(null);
+      child = new TreeNode(root);
     });
 
-    // depth-first pre-order.
-    function walk(node, f) {
-      if (isBlank(node)) return f;
-      f(node);
-      ListWrapper.forEach(node.children, (n) => walk(n, f));
-    }
-
-    function logWalk(node) {
-      var log = '';
-      walk(node, (n) => { log += (log.length != 0 ? ', ' : '') + n.toString(); });
-      return log;
-    }
-
-    it('should support listing children',
-       () => { expect(logWalk(root)).toEqual('root, p1, c1, c2, p2, c3'); });
-
-    it('should support removing the first child node', () => {
-      firstParent.remove();
-
-      expect(firstParent.parent).toEqual(null);
-      expect(logWalk(root)).toEqual('root, p2, c3');
-    });
-
-    it('should support removing the last child node', () => {
-      lastParent.remove();
-
-      expect(logWalk(root)).toEqual('root, p1, c1, c2');
-    });
-
-    it('should support moving a node at the end of children', () => {
-      node.remove();
-      root.addChild(node);
-
-      expect(logWalk(root)).toEqual('root, p1, c2, p2, c3, c1');
-    });
-
-    it('should support moving a node in the beginning of children', () => {
-      node.remove();
-      lastParent.addChildAfter(node, null);
-
-      expect(logWalk(root)).toEqual('root, p1, c2, p2, c1, c3');
-    });
-
-    it('should support moving a node in the middle of children', () => {
-      node.remove();
-      lastParent.addChildAfter(node, firstParent);
-
-      expect(logWalk(root)).toEqual('root, p1, c2, c1, p2, c3');
+    it('should support removing and adding the parent', () => {
+      expect(child.parent).toEqual(root);
+      child.remove();
+      expect(child.parent).toEqual(null);
+      root.addChild(child);
+      expect(child.parent).toEqual(root);
     });
   });
 
@@ -423,7 +345,7 @@ export function main() {
     describe('event emitters', () => {
       it('should return a list of event accessors', () => {
         var binding = DirectiveBinding.createFromType(HasEventEmitter,
-                                                      new dirAnn.Directive({events: ['emitter']}));
+                                                      new DirectiveMetadata({events: ['emitter']}));
 
         var inj = createPei(null, 0, [binding]);
         expect(inj.eventEmitterAccessors.length).toEqual(1);
@@ -435,7 +357,7 @@ export function main() {
 
       it('should allow a different event vs field name', () => {
         var binding = DirectiveBinding.createFromType(HasEventEmitter,
-            new dirAnn.Directive({events: ['emitter: publicEmitter']}));
+            new DirectiveMetadata({events: ['emitter: publicEmitter']}));
 
         var inj = createPei(null, 0, [binding]);
         expect(inj.eventEmitterAccessors.length).toEqual(1);
@@ -444,28 +366,16 @@ export function main() {
         expect(accessor.eventName).toEqual('publicEmitter');
         expect(accessor.getter(new HasEventEmitter())).toEqual('emitter');
       });
-
-      it('should return a list of hostAction accessors', () => {
-        var binding = DirectiveBinding.createFromType(
-            HasEventEmitter, new dirAnn.Directive({host: {'@hostActionName': 'onAction'}}));
-
-        var inj = createPei(null, 0, [binding]);
-        expect(inj.hostActionAccessors.length).toEqual(1);
-
-        var accessor = inj.hostActionAccessors[0][0];
-        expect(accessor.methodName).toEqual('onAction');
-        expect(accessor.getter(new HasHostAction())).toEqual('hostAction');
-      });
     });
 
     describe(".create", () => {
-      it("should collect hostInjector injectables from all directives", () => {
+      it("should collect bindings from all directives", () => {
         var pei = createPei(null, 0, [
           DirectiveBinding.createFromType(
               SimpleDirective,
-              new dirAnn.Component({hostInjector: [bind('injectable1').toValue('injectable1')]})),
-          DirectiveBinding.createFromType(SomeOtherDirective, new dirAnn.Component({
-            hostInjector: [bind('injectable2').toValue('injectable2')]
+              new ComponentMetadata({bindings: [bind('injectable1').toValue('injectable1')]})),
+          DirectiveBinding.createFromType(SomeOtherDirective, new ComponentMetadata({
+            bindings: [bind('injectable2').toValue('injectable2')]
           }))
         ]);
 
@@ -475,10 +385,10 @@ export function main() {
         expect(pei.getBindingAtIndex(3).key.token).toEqual("injectable2");
       });
 
-      it("should collect viewInjector injectables from the component", () => {
+      it("should collect view bindings from the component", () => {
         var pei = createPei(null, 0,
-                            [DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                              viewInjector: [bind('injectable1').toValue('injectable1')]
+                            [DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                              viewBindings: [bind('injectable1').toValue('injectable1')]
                             }))],
                             0, true);
 
@@ -486,13 +396,13 @@ export function main() {
         expect(pei.getBindingAtIndex(1).key.token).toEqual("injectable1");
       });
 
-      it("should collect view and host injectables from nested arrays", () => {
+      it("should flatten nested arrays", () => {
         var pei = createPei(null, 0, [
           DirectiveBinding.createFromType(
               SimpleDirective,
-              new dirAnn.Component({
-                viewInjector: [[[bind('view').toValue('view')]]],
-                hostInjector: [[[bind('host').toValue('host')]]]
+              new ComponentMetadata({
+                viewBindings: [[[bind('view').toValue('view')]]],
+                bindings: [[[bind('host').toValue('host')]]]
               }))
         ], 0, true);
 
@@ -522,8 +432,9 @@ export function main() {
         var c1 = protoChild1.instantiate(p);
         var c2 = protoChild2.instantiate(p);
 
-        expect(humanize(p, [[p, 'parent'], [c1, 'child1'], [c2, 'child2']]))
-            .toEqual(["parent", ["child1", "child2"]]);
+        expect(c1.parent).toEqual(p);
+        expect(c2.parent).toEqual(p);
+        expect(isBlank(p.parent)).toBeTruthy();
       });
 
       describe("direct parent", () => {
@@ -594,29 +505,29 @@ export function main() {
             expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
           });
 
-          it("should instantiate hostInjector injectables that have dependencies with set visibility",
+          it("should instantiate bindings that have dependencies with set visibility",
              function() {
                var childInj = parentChildInjectors(
                    ListWrapper.concat(
-                       [DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                         hostInjector: [bind('injectable1').toValue('injectable1')]
+                       [DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                         bindings: [bind('injectable1').toValue('injectable1')]
                        }))],
                        extraBindings),
-                   [DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                     hostInjector: [
+                   [DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                     bindings: [
                        bind('injectable1')
                            .toValue('new-injectable1'),
                        bind('injectable2')
                            .toFactory(
                                (val) => `${val}-injectable2`,
-                               [[new InjectMetadata('injectable1'), new ParentMetadata()]])
+                               [[new InjectMetadata('injectable1'), new SkipSelfMetadata()]])
                      ]
                    }))]);
                expect(childInj.get('injectable2')).toEqual('injectable1-injectable2');
              });
 
-          it("should instantiate hostInjector injectables that have dependencies", () => {
-            var hostInjector = [
+          it("should instantiate bindings that have dependencies", () => {
+            var bindings = [
                     bind('injectable1')
                         .toValue('injectable1'),
                     bind('injectable2')
@@ -627,14 +538,14 @@ export function main() {
 
             var inj = injector(ListWrapper.concat(
                 [DirectiveBinding.createFromType(SimpleDirective,
-                  new dirAnn.Directive({hostInjector: hostInjector}))],
+                  new DirectiveMetadata({bindings: bindings}))],
                 extraBindings));
 
             expect(inj.get('injectable2')).toEqual('injectable1-injectable2');
           });
 
-          it("should instantiate viewInjector injectables that have dependencies", () => {
-            var viewInjector = [
+          it("should instantiate viewBindings that have dependencies", () => {
+            var viewBindings = [
                     bind('injectable1')
                         .toValue('injectable1'),
                     bind('injectable2')
@@ -645,27 +556,27 @@ export function main() {
 
 
             var inj = injector(ListWrapper.concat(
-                [DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                  viewInjector: viewInjector}))], extraBindings),
+                [DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                  viewBindings: viewBindings}))], extraBindings),
                 null, true);
             expect(inj.get('injectable2')).toEqual('injectable1-injectable2');
           });
 
-          it("should instantiate components that depend on viewInjector bindings", () => {
+          it("should instantiate components that depend on viewBindings bindings", () => {
             var inj = injector(
-                ListWrapper.concat([DirectiveBinding.createFromType(NeedsService, new dirAnn.Component({
-                                     viewInjector: [bind('service').toValue('service')]
+                ListWrapper.concat([DirectiveBinding.createFromType(NeedsService, new ComponentMetadata({
+                                     viewBindings: [bind('service').toValue('service')]
                                    }))],
                                    extraBindings),
                 null, true);
             expect(inj.get(NeedsService).service).toEqual('service');
           });
 
-          it("should instantiate hostInjector injectables lazily", () => {
+          it("should instantiate bindings lazily", () => {
             var created = false;
             var inj = injector(
-                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                                     hostInjector: [bind('service').toFactory(() => created = true)]
+                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                                     bindings: [bind('service').toFactory(() => created = true)]
                                    }))],
                                    extraBindings),
                 null, true);
@@ -677,11 +588,11 @@ export function main() {
             expect(created).toBe(true);
           });
 
-          it("should instantiate viewInjector injectables lazily", () => {
+          it("should instantiate view bindings lazily", () => {
             var created = false;
             var inj = injector(
-                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                                     viewInjector: [bind('service').toFactory(() => created = true)]
+                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                                     viewBindings: [bind('service').toFactory(() => created = true)]
                                    }))],
                                    extraBindings),
                 null, true);
@@ -693,10 +604,10 @@ export function main() {
             expect(created).toBe(true);
           });
 
-          it("should not instantiate other directives that depend on viewInjector bindings",
+          it("should not instantiate other directives that depend on viewBindings bindings",
              () => {
-               var directiveAnnotation = new dirAnn.Component({
-                 viewInjector: ListWrapper.concat([bind("service").toValue("service")], extraBindings)
+               var directiveAnnotation = new ComponentMetadata({
+                 viewBindings: ListWrapper.concat([bind("service").toValue("service")], extraBindings)
                });
                var componentDirective =
                    DirectiveBinding.createFromType(SimpleDirective, directiveAnnotation);
@@ -705,106 +616,123 @@ export function main() {
                        `No provider for service! (${stringify(NeedsService) } -> service)`));
              });
 
-          it("should instantiate directives that depend on hostInjector bindings of other directives", () => {
+          it("should instantiate directives that depend on bindings of other directives", () => {
             var shadowInj = hostShadowInjectors(
-                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component({
-                      hostInjector: [bind('service').toValue('hostService')]})
+                ListWrapper.concat([DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata({
+                      bindings: [bind('service').toValue('hostService')]})
                     )], extraBindings),
                 ListWrapper.concat([NeedsService], extraBindings)
             );
             expect(shadowInj.get(NeedsService).service).toEqual('hostService');
           });
 
-          it("should instantiate directives that depend on imperativley created injector bindings", () => {
+          it("should instantiate directives that depend on imperatively created injector bindings (bootstrap)", () => {
             var imperativelyCreatedInjector = Injector.resolveAndCreate([
               bind("service").toValue('appService')
             ]);
             var inj = injector([NeedsService], imperativelyCreatedInjector);
             expect(inj.get(NeedsService).service).toEqual('appService');
+
+            expect(() => injector([NeedsServiceFromHost], imperativelyCreatedInjector)).toThrowError();
           });
 
-          it("should prioritize viewInjector over hostInjector for the same binding", () => {
+          it("should instantiate directives that depend on imperatively created injector bindings (root injector)", () => {
+            var imperativelyCreatedInjector = Injector.resolveAndCreate([
+              bind("service").toValue('appService')
+            ]);
+            var inj = hostShadowInjectors([SimpleDirective], [NeedsService, NeedsServiceFromHost], imperativelyCreatedInjector);
+            expect(inj.get(NeedsService).service).toEqual('appService');
+            expect(inj.get(NeedsServiceFromHost).service).toEqual('appService');
+          });
+
+          it("should instantiate directives that depend on imperatively created injector bindings (child injector)", () => {
+            var imperativelyCreatedInjector = Injector.resolveAndCreate([
+              bind("service").toValue('appService')
+            ]);
+            var inj = parentChildInjectors([], [NeedsService, NeedsServiceFromHost], null, imperativelyCreatedInjector);
+            expect(inj.get(NeedsService).service).toEqual('appService');
+            expect(inj.get(NeedsServiceFromHost).service).toEqual('appService');
+          });
+
+          it("should prioritize viewBindings over bindings for the same binding", () => {
             var inj = injector(
-                ListWrapper.concat([DirectiveBinding.createFromType(NeedsService, new dirAnn.Component({
-                      hostInjector: [bind('service').toValue('hostService')],
-                      viewInjector: [bind('service').toValue('viewService')]})
+                ListWrapper.concat([DirectiveBinding.createFromType(NeedsService, new ComponentMetadata({
+                      bindings: [bind('service').toValue('hostService')],
+                      viewBindings: [bind('service').toValue('viewService')]})
                     )], extraBindings), null, true);
             expect(inj.get(NeedsService).service).toEqual('viewService');
           });
 
-          it("should not instantiate a directive in a view that has an ancestor dependency on hostInjector"+
-            " bindings of a decorator directive", () => {
+          it("should prioritize directive bindings over component bindings", () => {
+            var component = DirectiveBinding.createFromType(NeedsService, new ComponentMetadata({
+                      bindings: [bind('service').toValue('compService')]}));
+            var directive = DirectiveBinding.createFromType(SomeOtherDirective, new DirectiveMetadata({
+                      bindings: [bind('service').toValue('dirService')]}));
+            var inj = injector(ListWrapper.concat([component, directive], extraBindings), null, true);
+            expect(inj.get(NeedsService).service).toEqual('dirService');
+          });
+
+          it("should not instantiate a directive in a view that has a host dependency on bindings"+
+            " of the component", () => {
+            expect(() => {
+              hostShadowInjectors(
+                ListWrapper.concat([
+                  DirectiveBinding.createFromType(SomeOtherDirective, new DirectiveMetadata({
+                      bindings: [bind('service').toValue('hostService')]})
+                  )], extraBindings),
+                ListWrapper.concat([NeedsServiceFromHost], extraBindings)
+              );
+            }).toThrowError(new RegExp("No provider for service!"));
+          });
+
+          it("should not instantiate a directive in a view that has a host dependency on bindings"+
+            " of a decorator directive", () => {
             expect(() => {
               hostShadowInjectors(
                 ListWrapper.concat([
                   SimpleDirective,
-                  DirectiveBinding.createFromType(SomeOtherDirective, new dirAnn.Directive({
-                      hostInjector: [bind('service').toValue('hostService')]})
+                  DirectiveBinding.createFromType(SomeOtherDirective, new DirectiveMetadata({
+                      bindings: [bind('service').toValue('hostService')]})
                   )], extraBindings),
 
-                ListWrapper.concat([NeedsAncestorService], extraBindings)
+                ListWrapper.concat([NeedsServiceFromHost], extraBindings)
               );
             }).toThrowError(new RegExp("No provider for service!"));
           });
 
           it("should instantiate directives that depend on pre built objects", () => {
-            var protoView = new AppProtoView(null, null, null, null, null);
-            var bindings = ListWrapper.concat([NeedsProtoViewRef], extraBindings);
-            var inj = injector(bindings, null, false, new PreBuiltObjects(null, null, null, protoView));
+            var templateRef = new TemplateRef(<any>new SpyElementRef());
+            var bindings = ListWrapper.concat([NeedsTemplateRef], extraBindings);
+            var inj = injector(bindings, null, false, new PreBuiltObjects(null, null, null, templateRef));
 
-            expect(inj.get(NeedsProtoViewRef).protoViewRef).toEqual(new ProtoViewRef(protoView));
+            expect(inj.get(NeedsTemplateRef).templateRef).toEqual(templateRef);
           });
 
-          it("should get directives from parent", () => {
-            var child = parentChildInjectors(ListWrapper.concat([SimpleDirective], extraBindings),
-                                             [NeedsDirectiveFromParent]);
-
-            var d = child.get(NeedsDirectiveFromParent);
-
-            expect(d).toBeAnInstanceOf(NeedsDirectiveFromParent);
-            expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
-          });
-
-          it("should not return parent's directives on self by default", () => {
-            expect(() => {
-              injector(ListWrapper.concat([SimpleDirective, NeedsDirectiveFromParent], extraBindings));
-            }).toThrowError(containsRegexp(`No provider for ${stringify(SimpleDirective) }`));
-          });
-
-          it("should return parent's directives on self when explicitly specified", () => {
-            var inj = injector(ListWrapper.concat([SimpleDirective, NeedsDirectiveFromParentOrSelf], extraBindings));
-
-            var d = inj.get(NeedsDirectiveFromParentOrSelf);
-
-            expect(d).toBeAnInstanceOf(NeedsDirectiveFromParentOrSelf);
-            expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
-          });
-
-          it("should get directives from ancestor", () => {
-            var child = parentChildInjectors(ListWrapper.concat([SimpleDirective], extraBindings),
-                                             [NeedsDirectiveFromAncestor]);
-
-            var d = child.get(NeedsDirectiveFromAncestor);
-
-            expect(d).toBeAnInstanceOf(NeedsDirectiveFromAncestor);
-            expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
-          });
-
-          it("should get directives crossing the boundaries", () => {
+          it("should get directives", () => {
             var child = hostShadowInjectors(
                 ListWrapper.concat([SomeOtherDirective, SimpleDirective], extraBindings),
-                [NeedsDirectiveFromAnAncestorShadowDom]);
+                [NeedsDirectiveFromHostShadowDom]);
 
-            var d = child.get(NeedsDirectiveFromAnAncestorShadowDom);
+            var d = child.get(NeedsDirectiveFromHostShadowDom);
 
-            expect(d).toBeAnInstanceOf(NeedsDirectiveFromAnAncestorShadowDom);
+            expect(d).toBeAnInstanceOf(NeedsDirectiveFromHostShadowDom);
+            expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
+          });
+
+          it("should get directives from the host", () => {
+            var child = parentChildInjectors(ListWrapper.concat([SimpleDirective], extraBindings),
+                                             [NeeedsDirectiveFromHost]);
+
+            var d = child.get(NeeedsDirectiveFromHost);
+
+            expect(d).toBeAnInstanceOf(NeeedsDirectiveFromHost);
             expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
           });
 
           it("should throw when a dependency cannot be resolved", () => {
-            expect(() => injector(ListWrapper.concat([NeedsDirectiveFromParent], extraBindings)))
+            expect(() => injector(ListWrapper.concat([NeeedsDirectiveFromHost], extraBindings)))
                 .toThrowError(containsRegexp(
-                    `No provider for ${stringify(SimpleDirective) }! (${stringify(NeedsDirectiveFromParent) } -> ${stringify(SimpleDirective) })`));
+                    `No provider for ${stringify(SimpleDirective) }! (${stringify(NeeedsDirectiveFromHost) } -> ${stringify(SimpleDirective) })`));
           });
 
           it("should inject null when an optional dependency cannot be resolved", () => {
@@ -833,37 +761,78 @@ export function main() {
                 .toThrowError(`Index ${firsIndexOut} is out-of-bounds.`);
           });
 
-            it("should instantiate directives that depend on the containing component", () => {
-              var directiveBinding =
-                  DirectiveBinding.createFromType(SimpleDirective, new dirAnn.Component());
-              var shadow = hostShadowInjectors(ListWrapper.concat([directiveBinding], extraBindings),
-                                               [NeedsDirective]);
+          it("should instantiate directives that depend on the containing component", () => {
+            var directiveBinding =
+                DirectiveBinding.createFromType(SimpleDirective, new ComponentMetadata());
+            var shadow = hostShadowInjectors(ListWrapper.concat([directiveBinding], extraBindings),
+                                             [NeeedsDirectiveFromHost]);
 
-              var d = shadow.get(NeedsDirective);
-              expect(d).toBeAnInstanceOf(NeedsDirective);
-              expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
-            });
+            var d = shadow.get(NeeedsDirectiveFromHost);
+            expect(d).toBeAnInstanceOf(NeeedsDirectiveFromHost);
+            expect(d.dependency).toBeAnInstanceOf(SimpleDirective);
+          });
 
-            it("should not instantiate directives that depend on other directives in the containing component's ElementInjector",
-               () => {
-                 var directiveBinding =
-                     DirectiveBinding.createFromType(SomeOtherDirective, new dirAnn.Component());
-                 expect(() =>
-                        {
-                          hostShadowInjectors(
-                              ListWrapper.concat([directiveBinding, SimpleDirective], extraBindings),
-                              [NeedsDirective]);
-                        })
-                     .toThrowError(containsRegexp(
-                         `No provider for ${stringify(SimpleDirective) }! (${stringify(NeedsDirective) } -> ${stringify(SimpleDirective) })`));
-               });
+          it("should not instantiate directives that depend on other directives in the containing component's ElementInjector",
+             () => {
+               var directiveBinding =
+                   DirectiveBinding.createFromType(SomeOtherDirective, new ComponentMetadata());
+               expect(() =>
+                      {
+                        hostShadowInjectors(
+                            ListWrapper.concat([directiveBinding, SimpleDirective], extraBindings),
+                            [NeedsDirective]);
+                      })
+                   .toThrowError(containsRegexp(
+                       `No provider for ${stringify(SimpleDirective) }! (${stringify(NeedsDirective) } -> ${stringify(SimpleDirective) })`));
+             });
+        });
+
+        describe("getRootViewInjectors", () => {
+          it("should return an empty array if there is no nested view", () => {
+            var inj = injector(extraBindings);
+            expect(inj.getRootViewInjectors()).toEqual([]);
+          });
+
+          it("should return an empty array on a dehydrated view", () => {
+            var inj = injector(extraBindings);
+            inj.dehydrate();
+            expect(inj.getRootViewInjectors()).toEqual([]);
+          });
+        });
+
+        describe("dehydrate", () => {
+          function cycleHydrate(inj: ElementInjector, host=null): void {
+            // Each injection supports 3 query slots, so we cycle 4 times.
+            for (var i = 0; i < 4; i++) {
+              inj.dehydrate();
+              inj.hydrate(null, host, defaultPreBuiltObjects);
+            }
+          }
+
+          it("should handle repeated hydration / dehydration", () => {
+            var inj = injector(extraBindings);
+            cycleHydrate(inj);
+          });
+
+          it("should handle repeated hydration / dehydration with query present", () => {
+            var inj = injector(ListWrapper.concat([NeedsQuery], extraBindings));
+            cycleHydrate(inj);
+          });
+
+
+          it("should handle repeated hydration / dehydration with view query present", () => {
+            var inj = injector(extraBindings);
+            var host = injector(ListWrapper.concat([NeedsViewQuery], extraBindings));
+
+            cycleHydrate(inj, host);
+          });
         });
 
         describe("lifecycle", () => {
           it("should call onDestroy on directives subscribed to this event", () => {
             var inj = injector(ListWrapper.concat(
                 [DirectiveBinding.createFromType(DirectiveWithDestroy,
-                                                 new dirAnn.Directive({lifecycle: [LifecycleEvent.onDestroy]}))],
+                                                 new DirectiveMetadata())],
                 extraBindings));
             var destroy = inj.get(DirectiveWithDestroy);
             inj.dehydrate();
@@ -873,42 +842,10 @@ export function main() {
           it("should work with services", () => {
             var inj = injector(ListWrapper.concat(
                 [DirectiveBinding.createFromType(
-                    SimpleDirective, new dirAnn.Directive({hostInjector: [SimpleService]}))],
+                    SimpleDirective, new DirectiveMetadata({bindings: [SimpleService]}))],
                 extraBindings));
             inj.dehydrate();
           });
-
-          it("should notify queries", inject([AsyncTestCompleter], (async) => {
-            var inj = injector(ListWrapper.concat([NeedsQuery], extraBindings));
-            var query = inj.get(NeedsQuery).query;
-            query.add(new CountingDirective()); // this marks the query as dirty
-
-            query.onChange(() => async.done());
-
-            inj.onAllChangesDone();
-          }));
-
-          it("should not notify inherited queries", inject([AsyncTestCompleter], (async) => {
-            var child = parentChildInjectors(ListWrapper.concat([NeedsQuery], extraBindings), []);
-
-            var query = child.parent.get(NeedsQuery).query;
-
-            var calledOnChange = false;
-            query.onChange(() => {
-              // make sure the callback is called only once
-              expect(calledOnChange).toEqual(false);
-              expect(query.length).toEqual(2);
-
-              calledOnChange = true;
-              async.done()
-            });
-
-            query.add(new CountingDirective());
-            child.onAllChangesDone(); // this does not notify the query
-
-            query.add(new CountingDirective());
-            child.parent.onAllChangesDone();
-          }));
         });
 
         describe('static attributes', () => {
@@ -945,25 +882,23 @@ export function main() {
           });
 
           it("should inject ChangeDetectorRef of the component's view into the component", () => {
-            var cd = new DynamicChangeDetector(null, null, null, [], []);
-            var view = <any>new DummyView();
-            var childView = new DummyView();
-            childView.changeDetector = cd;
+            var cd = new DynamicChangeDetector(null, null, 0, [], [], null, [], [], [], null);
+            var view = <any>createDummyView();
+            var childView = createDummyView(cd);
             view.spy('getNestedView').andReturn(childView);
-            var binding = DirectiveBinding.createFromType(ComponentNeedsChangeDetectorRef, new dirAnn.Component());
+            var binding = DirectiveBinding.createFromType(ComponentNeedsChangeDetectorRef, new ComponentMetadata());
             var inj = injector(ListWrapper.concat([binding], extraBindings), null, true,
-                               new PreBuiltObjects(null, view, <any>new DummyElementRef(), null));
+                               new PreBuiltObjects(null, view, <any>new SpyElementRef(), null));
 
             expect(inj.get(ComponentNeedsChangeDetectorRef).changeDetectorRef).toBe(cd.ref);
           });
 
           it("should inject ChangeDetectorRef of the containing component into directives", () => {
-            var cd = new DynamicChangeDetector(null, null, null, [], []);
-            var view = <any>new DummyView();
-            view.changeDetector =cd;
-            var binding = DirectiveBinding.createFromType(DirectiveNeedsChangeDetectorRef, new dirAnn.Directive());
+            var cd = new DynamicChangeDetector(null, null, 0, [], [], null, [], [], [], null);
+            var view = createDummyView(cd);
+            var binding = DirectiveBinding.createFromType(DirectiveNeedsChangeDetectorRef, new DirectiveMetadata());
             var inj = injector(ListWrapper.concat([binding], extraBindings), null, false,
-                               new PreBuiltObjects(null, view, <any>new DummyElementRef(), null));
+                               new PreBuiltObjects(null, view, <any>new SpyElementRef(), null));
 
             expect(inj.get(DirectiveNeedsChangeDetectorRef).changeDetectorRef).toBe(cd.ref);
           });
@@ -973,33 +908,39 @@ export function main() {
             expect(inj.get(NeedsViewContainer).viewContainer).toBeAnInstanceOf(ViewContainerRef);
           });
 
-          it("should inject ProtoViewRef", () => {
-            var protoView = new AppProtoView(null, null, null, null, null);
-            var inj = injector(ListWrapper.concat([NeedsProtoViewRef], extraBindings), null, false,
-                               new PreBuiltObjects(null, null, null, protoView));
+          it("should inject TemplateRef", () => {
+            var templateRef = new TemplateRef(<any>new SpyElementRef());
+            var inj = injector(ListWrapper.concat([NeedsTemplateRef], extraBindings), null, false,
+                               new PreBuiltObjects(null, null, null, templateRef));
 
-            expect(inj.get(NeedsProtoViewRef).protoViewRef).toEqual(new ProtoViewRef(protoView));
+            expect(inj.get(NeedsTemplateRef).templateRef).toEqual(templateRef);
           });
 
-          it("should throw if there is no ProtoViewRef", () => {
-            expect(() => injector(ListWrapper.concat([NeedsProtoViewRef], extraBindings)))
+          it("should throw if there is no TemplateRef", () => {
+            expect(() => injector(ListWrapper.concat([NeedsTemplateRef], extraBindings)))
                 .toThrowError(
-                    `No provider for ProtoViewRef! (${stringify(NeedsProtoViewRef) } -> ProtoViewRef)`);
+                    `No provider for TemplateRef! (${stringify(NeedsTemplateRef) } -> TemplateRef)`);
           });
 
-          it('should inject null if there is no ProtoViewRef when the dependency is optional', () => {
-            var inj = injector(ListWrapper.concat([OptionallyInjectsProtoViewRef], extraBindings));
-            var instance = inj.get(OptionallyInjectsProtoViewRef);
-            expect(instance.protoViewRef).toBeNull();
+          it('should inject null if there is no TemplateRef when the dependency is optional', () => {
+            var inj = injector(ListWrapper.concat([OptionallyInjectsTemplateRef], extraBindings));
+            var instance = inj.get(OptionallyInjectsTemplateRef);
+            expect(instance.templateRef).toBeNull();
           });
         });
 
         describe('queries', () => {
-          var preBuildObjects = defaultPreBuiltObjects;
-          beforeEach(() => { _constructionCount = 0; });
+          var dummyView;
+          var preBuildObjects;
 
-          function expectDirectives(query, type, expectedIndex) {
+          beforeEach(() => { _constructionCount = 0;
+            dummyView = createDummyView();
+            preBuildObjects = new PreBuiltObjects(null, dummyView, <any>new SpyElementRef(), null);
+          });
+
+          function expectDirectives(query: QueryList<any>, type, expectedIndex) {
             var currentCount = 0;
+            expect(query.length).toEqual(expectedIndex.length);
             iterateListLike(query, (i) => {
               expect(i).toBeAnInstanceOf(type);
               expect(i.count).toBe(expectedIndex[currentCount]);
@@ -1020,40 +961,24 @@ export function main() {
               ], extraBindings), null,
               false, preBuildObjects);
 
+            addInj(dummyView, inj);
+            inj.afterContentChecked();
+
             expectDirectives(inj.get(NeedsQuery).query, CountingDirective, [0]);
-          })
+          });
 
-          it('should contain multiple directives from the same injector', () => {
+          it('should contain PreBuiltObjects on the same injector', () => {
+            var preBuiltObjects = new PreBuiltObjects(null, dummyView, null, new TemplateRef(<any>new SpyElementRef()));
             var inj = injector(ListWrapper.concat([
-                NeedsQuery,
-                CountingDirective,
-                FancyCountingDirective,
-                bind(CountingDirective).toAlias(FancyCountingDirective)
+                NeedsTemplateRefQuery
               ], extraBindings), null,
-              false, preBuildObjects);
+              false, preBuiltObjects);
+            addInj(dummyView, inj);
 
-            expect(inj.get(NeedsQuery).query.length).toEqual(2);
-            expect(inj.get(NeedsQuery).query.first).toBeAnInstanceOf(CountingDirective);
-            expect(inj.get(NeedsQuery).query.last).toBeAnInstanceOf(FancyCountingDirective);
-          })
+            inj.afterContentChecked();
 
-          it('should contain multiple directives from the same injector after linking', () => {
-            var inj = parentChildInjectors([], ListWrapper.concat([
-                NeedsQuery,
-                CountingDirective,
-                FancyCountingDirective,
-                bind(CountingDirective).toAlias(FancyCountingDirective)
-              ], extraBindings));
-
-            var parent = inj.parent;
-
-            inj.unlink();
-            inj.link(parent);
-
-            expect(inj.get(NeedsQuery).query.length).toEqual(2);
-            expect(inj.get(NeedsQuery).query.first).toBeAnInstanceOf(CountingDirective);
-            expect(inj.get(NeedsQuery).query.last).toBeAnInstanceOf(FancyCountingDirective);
-          })
+            expect(inj.get(NeedsTemplateRefQuery).query.first).toBe(preBuiltObjects.templateRef);
+          });
 
           it('should contain the element when no directives are bound to the var binding', () => {
             var dirs = [NeedsQueryByVarBindings];
@@ -1062,10 +987,13 @@ export function main() {
               "one": null // element
             });
 
-            var inj = injector(ListWrapper.concat(dirs, extraBindings), null,
+            var inj = injector(dirs.concat(extraBindings), null,
                                false, preBuildObjects, null, dirVariableBindings);
 
-            expect(inj.get(NeedsQueryByVarBindings).query.first).toBe(defaultPreBuiltObjects.elementRef);
+            addInj(dummyView, inj);
+            inj.afterContentChecked();
+
+            expect(inj.get(NeedsQueryByVarBindings).query.first).toBe(preBuildObjects.elementRef);
           });
 
           it('should contain directives on the same injector when querying by variable bindings' +
@@ -1077,23 +1005,16 @@ export function main() {
               "two": 1 // 1 is the index of NeedsDirective
             });
 
-            var inj = injector(ListWrapper.concat(dirs, extraBindings), null,
+            var inj = injector(dirs.concat(extraBindings), null,
                                false, preBuildObjects, null, dirVariableBindings);
+
+            addInj(dummyView, inj);
+            inj.afterContentChecked();
 
             // NeedsQueryByVarBindings queries "one,two", so SimpleDirective should be before NeedsDirective
             expect(inj.get(NeedsQueryByVarBindings).query.first).toBeAnInstanceOf(SimpleDirective);
             expect(inj.get(NeedsQueryByVarBindings).query.last).toBeAnInstanceOf(NeedsDirective);
           });
-
-          // Dart's restriction on static types in (a is A) makes this feature hard to implement.
-          // Current proposal is to add second parameter the Query constructor to take a
-          // comparison function to support user-defined definition of matching.
-
-          //it('should support super class directives', () => {
-          //  var inj = injector([NeedsQuery, FancyCountingDirective], null, null, preBuildObjects);
-          //
-          //  expectDirectives(inj.get(NeedsQuery).query, FancyCountingDirective, [0]);
-          //});
 
           it('should contain directives on the same and a child injector in construction order', () => {
             var protoParent = createPei(null, 0, [NeedsQuery, CountingDirective]);
@@ -1105,94 +1026,16 @@ export function main() {
             parent.hydrate(null, null, preBuildObjects);
             child.hydrate(null, null, preBuildObjects);
 
+            addInj(dummyView, parent);
+            addInj(dummyView, child);
+            parent.afterContentChecked();
+
             expectDirectives(parent.get(NeedsQuery).query, CountingDirective, [0, 1]);
-          });
-
-          it('should reflect unlinking an injector', () => {
-            var protoParent = createPei(null, 0, [NeedsQuery, CountingDirective]);
-            var protoChild =
-                createPei(protoParent, 1, ListWrapper.concat([CountingDirective], extraBindings));
-
-            var parent = protoParent.instantiate(null);
-            var child = protoChild.instantiate(parent);
-            parent.hydrate(null, null, preBuildObjects);
-            child.hydrate(null, null, preBuildObjects);
-
-            child.unlink();
-
-            expectDirectives(parent.get(NeedsQuery).query, CountingDirective, [0]);
-          });
-
-          it('should reflect moving an injector as a last child', () => {
-            var protoParent = createPei(null, 0, [NeedsQuery, CountingDirective]);
-            var protoChild1 = createPei(protoParent, 1, [CountingDirective]);
-            var protoChild2 =
-                createPei(protoParent, 1, ListWrapper.concat([CountingDirective], extraBindings));
-
-            var parent = protoParent.instantiate(null);
-            var child1 = protoChild1.instantiate(parent);
-            var child2 = protoChild2.instantiate(parent);
-
-            parent.hydrate(null, null, preBuildObjects);
-            child1.hydrate(null,  null, preBuildObjects);
-            child2.hydrate(null, null, preBuildObjects);
-
-            child1.unlink();
-            child1.link(parent);
-
-            var queryList = parent.get(NeedsQuery).query;
-            expectDirectives(queryList, CountingDirective, [0, 2, 1]);
-          });
-
-          it('should reflect moving an injector as a first child', () => {
-            var protoParent = createPei(null, 0, [NeedsQuery, CountingDirective]);
-            var protoChild1 = createPei(protoParent, 1, [CountingDirective]);
-            var protoChild2 =
-                createPei(protoParent, 1, ListWrapper.concat([CountingDirective], extraBindings));
-
-            var parent = protoParent.instantiate(null);
-            var child1 = protoChild1.instantiate(parent);
-            var child2 = protoChild2.instantiate(parent);
-
-            parent.hydrate(null, null, preBuildObjects);
-            child1.hydrate(null, null, preBuildObjects);
-            child2.hydrate(null, null, preBuildObjects);
-
-            child2.unlink();
-            child2.linkAfter(parent, null);
-
-            var queryList = parent.get(NeedsQuery).query;
-            expectDirectives(queryList, CountingDirective, [0, 2, 1]);
-          });
-
-          it('should support two concurrent queries for the same directive', () => {
-            var protoGrandParent = createPei(null, 0, [NeedsQuery]);
-            var protoParent = createPei(null, 0, [NeedsQuery]);
-            var protoChild =
-                createPei(protoParent, 1, ListWrapper.concat([CountingDirective], extraBindings));
-
-            var grandParent = protoGrandParent.instantiate(null);
-            var parent = protoParent.instantiate(grandParent);
-            var child = protoChild.instantiate(parent);
-
-            grandParent.hydrate(null,  null, preBuildObjects);
-            parent.hydrate(null, null, preBuildObjects);
-            child.hydrate(null, null, preBuildObjects);
-
-            var queryList1 = grandParent.get(NeedsQuery).query;
-            var queryList2 = parent.get(NeedsQuery).query;
-
-            expectDirectives(queryList1, CountingDirective, [0]);
-            expectDirectives(queryList2, CountingDirective, [0]);
-
-            child.unlink();
-            expectDirectives(queryList1, CountingDirective, []);
-            expectDirectives(queryList2, CountingDirective, []);
           });
         });
       });
     });
-  });    
+  });
 }
 
 class ContextWithHandler {

@@ -1,14 +1,13 @@
 /// <reference path="../../typings/jasmine/jasmine.d.ts"/>
 
-import {BaseException, global} from 'angular2/src/facade/lang';
-import {ListWrapper} from 'angular2/src/facade/collection';
+import {BaseException, global} from 'angular2/src/core/facade/lang';
+import {ListWrapper} from 'angular2/src/core/facade/collection';
 import {NgZoneZone} from 'angular2/src/core/zone/ng_zone';
 
 var _scheduler;
-var _microtasks: List<Function> = [];
-var _pendingPeriodicTimers: List<number> = [];
-var _pendingTimers: List<number> = [];
-var _error = null;
+var _microtasks: Function[] = [];
+var _pendingPeriodicTimers: number[] = [];
+var _pendingTimers: number[] = [];
 
 interface FakeAsyncZone extends NgZoneZone {
   _inFakeAsyncZone: boolean;
@@ -41,9 +40,7 @@ export function fakeAsync(fn: Function): Function {
   return function(...args) {
     // TODO(tbosch): This class should already be part of the jasmine typings but it is not...
     _scheduler = new (<any>jasmine).DelayedFunctionScheduler();
-    ListWrapper.clear(_microtasks);
-    ListWrapper.clear(_pendingPeriodicTimers);
-    ListWrapper.clear(_pendingTimers);
+    clearPendingTimers();
 
     let res = fakeAsyncZone.run(() => {
       let res = fn(...args);
@@ -66,6 +63,14 @@ export function fakeAsync(fn: Function): Function {
     return res;
   }
 }
+
+// TODO we should fix tick to dequeue the failed timer instead of relying on clearPendingTimers
+export function clearPendingTimers(): void {
+  ListWrapper.clear(_microtasks);
+  ListWrapper.clear(_pendingPeriodicTimers);
+  ListWrapper.clear(_pendingTimers);
+}
+
 
 /**
  * Simulates the asynchronous passage of time for the timers in the fakeAsync zone.

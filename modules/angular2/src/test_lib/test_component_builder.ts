@@ -1,14 +1,14 @@
-import {Injector, bind, Injectable} from 'angular2/di';
+import {Injector, bind, Injectable} from 'angular2/src/core/di';
 
-import {Type, isPresent, BaseException, isBlank} from 'angular2/src/facade/lang';
-import {Promise} from 'angular2/src/facade/async';
-import {List, ListWrapper, MapWrapper} from 'angular2/src/facade/collection';
+import {Type, isPresent, BaseException, isBlank} from 'angular2/src/core/facade/lang';
+import {Promise} from 'angular2/src/core/facade/async';
+import {ListWrapper, MapWrapper} from 'angular2/src/core/facade/collection';
 
-import {View} from 'angular2/src/core/annotations_impl/view';
+import {ViewMetadata} from '../core/metadata';
 
 import {ViewResolver} from 'angular2/src/core/compiler/view_resolver';
 import {AppView} from 'angular2/src/core/compiler/view';
-import {internalView} from 'angular2/src/core/compiler/view_ref';
+import {internalView, ViewRef} from 'angular2/src/core/compiler/view_ref';
 import {
   DynamicComponentLoader,
   ComponentRef
@@ -16,19 +16,19 @@ import {
 
 import {el} from './utils';
 
-import {DOCUMENT_TOKEN} from 'angular2/src/render/dom/dom_renderer';
-import {DOM} from 'angular2/src/dom/dom_adapter';
+import {DOCUMENT} from 'angular2/src/core/render/render';
+import {DOM} from 'angular2/src/core/dom/dom_adapter';
 
-import {DebugElement} from 'angular2/src/debug/debug_element';
+import {DebugElement} from 'angular2/src/core/debug/debug_element';
 
 export class RootTestComponent extends DebugElement {
   _componentRef: ComponentRef;
   _componentParentView: AppView;
 
   constructor(componentRef: ComponentRef) {
-    super(internalView(componentRef.hostView), 0);
+    super(internalView(<ViewRef>componentRef.hostView), 0);
 
-    this._componentParentView = internalView(componentRef.hostView);
+    this._componentParentView = internalView(<ViewRef>componentRef.hostView);
     this._componentRef = componentRef;
   }
 
@@ -48,7 +48,7 @@ var _nextRootElementId = 0;
 @Injectable()
 export class TestComponentBuilder {
   _injector: Injector;
-  _viewOverrides: Map<Type, View>;
+  _viewOverrides: Map<Type, ViewMetadata>;
   _directiveOverrides: Map<Type, Map<Type, Type>>;
   _templateOverrides: Map<Type, string>;
 
@@ -68,8 +68,8 @@ export class TestComponentBuilder {
   }
 
   /**
-   * Overrides only the html of a {@link Component}.
-   * All the other properties of the component's {@link View} are preserved.
+   * Overrides only the html of a {@link ComponentMetadata}.
+   * All the other properties of the component's {@link ViewMetadata} are preserved.
    *
    * @param {Type} component
    * @param {string} html
@@ -83,21 +83,21 @@ export class TestComponentBuilder {
   }
 
   /**
-   * Overrides a component's {@link View}.
+   * Overrides a component's {@link ViewMetadata}.
    *
    * @param {Type} component
    * @param {view} View
    *
    * @return {TestComponentBuilder}
    */
-  overrideView(componentType: Type, view: View): TestComponentBuilder {
+  overrideView(componentType: Type, view: ViewMetadata): TestComponentBuilder {
     var clone = this._clone();
     clone._viewOverrides.set(componentType, view);
     return clone;
   }
 
   /**
-   * Overrides the directives from the component {@link View}.
+   * Overrides the directives from the component {@link ViewMetadata}.
    *
    * @param {Type} component
    * @param {Type} from
@@ -135,9 +135,13 @@ export class TestComponentBuilder {
 
     var rootElId = `root${_nextRootElementId++}`;
     var rootEl = el(`<div id="${rootElId}"></div>`);
-    var doc = this._injector.get(DOCUMENT_TOKEN);
+    var doc = this._injector.get(DOCUMENT);
 
     // TODO(juliemr): can/should this be optional?
+    var oldRoots = DOM.querySelectorAll(doc, '[id^=root]');
+    for (var i = 0; i < oldRoots.length; i++) {
+      DOM.remove(oldRoots[i]);
+    }
     DOM.appendChild(doc.body, rootEl);
 
 

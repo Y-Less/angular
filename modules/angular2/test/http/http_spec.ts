@@ -11,16 +11,25 @@ import {
   xit,
   SpyObject
 } from 'angular2/test_lib';
-import {Http} from 'angular2/src/http/http';
-import {Injector, bind} from 'angular2/di';
-import {MockBackend} from 'angular2/src/http/backends/mock_backend';
-import {Response} from 'angular2/src/http/static_response';
-import {RequestMethods} from 'angular2/src/http/enums';
-import {BaseRequestOptions, RequestOptions} from 'angular2/src/http/base_request_options';
-import {ResponseOptions} from 'angular2/src/http/base_response_options';
-import {Request} from 'angular2/src/http/static_request';
-import {EventEmitter, ObservableWrapper} from 'angular2/src/facade/async';
-import {ConnectionBackend} from 'angular2/src/http/interfaces';
+import {Injector, bind} from 'angular2/core';
+import {MockBackend, MockConnection} from 'angular2/src/http/backends/mock_backend';
+import {EventEmitter, ObservableWrapper} from 'angular2/src/core/facade/async';
+import {
+  BaseRequestOptions,
+  ConnectionBackend,
+  Request,
+  RequestMethods,
+  RequestOptions,
+  Response,
+  ResponseOptions,
+  URLSearchParams,
+  JSONP_BINDINGS,
+  HTTP_BINDINGS,
+  XHRBackend,
+  JSONPBackend,
+  Http,
+  Jsonp
+} from 'angular2/http';
 
 class SpyObserver extends SpyObject {
   onNext: Function;
@@ -35,6 +44,59 @@ class SpyObserver extends SpyObject {
 }
 
 export function main() {
+  describe('injectables', () => {
+    var url = 'http://foo.bar';
+    var http: Http;
+    var parentInjector: Injector;
+    var childInjector: Injector;
+    var jsonpBackend: MockBackend;
+    var xhrBackend: MockBackend;
+    var jsonp: Jsonp;
+    var http: Http;
+
+    it('should allow using jsonpInjectables and httpInjectables in same injector',
+       inject([AsyncTestCompleter], (async) => {
+         parentInjector = Injector.resolveAndCreate(
+             [bind(XHRBackend).toClass(MockBackend), bind(JSONPBackend).toClass(MockBackend)]);
+
+         childInjector = parentInjector.resolveAndCreateChild([
+           HTTP_BINDINGS,
+           JSONP_BINDINGS,
+           bind(XHRBackend).toClass(MockBackend),
+           bind(JSONPBackend).toClass(MockBackend)
+         ]);
+
+         http = childInjector.get(Http);
+         jsonp = childInjector.get(Jsonp);
+         jsonpBackend = childInjector.get(JSONPBackend);
+         xhrBackend = childInjector.get(XHRBackend);
+
+         var xhrCreatedConnections = 0;
+         var jsonpCreatedConnections = 0;
+
+
+         ObservableWrapper.subscribe(xhrBackend.connections, () => {
+           xhrCreatedConnections++;
+           expect(xhrCreatedConnections).toEqual(1);
+           if (jsonpCreatedConnections) {
+             async.done();
+           }
+         });
+
+         ObservableWrapper.subscribe(http.get(url), () => {});
+
+         ObservableWrapper.subscribe(jsonpBackend.connections, () => {
+           jsonpCreatedConnections++;
+           expect(jsonpCreatedConnections).toEqual(1);
+           if (xhrCreatedConnections) {
+             async.done();
+           }
+         });
+
+         ObservableWrapper.subscribe(jsonp.request(url), () => {});
+       }));
+  });
+
   describe('http', () => {
     var url = 'http://foo.bar';
     var http: Http;
@@ -66,7 +128,7 @@ export function main() {
 
         it('should accept a fully-qualified request as its only parameter',
            inject([AsyncTestCompleter], (async) => {
-             ObservableWrapper.subscribe(backend.connections, c => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
                expect(c.request.url).toBe('https://google.com');
                c.mockRespond(new Response(new ResponseOptions({body: 'Thank you'})));
                async.done();
@@ -79,8 +141,9 @@ export function main() {
 
         it('should perform a get request for given url if only passed a string',
            inject([AsyncTestCompleter], (async) => {
-             ObservableWrapper.subscribe(backend.connections, c => c.mockRespond(baseResponse));
-             ObservableWrapper.subscribe(http.request('http://basic.connection'), res => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections,
+                                                         c => c.mockRespond(baseResponse));
+             ObservableWrapper.subscribe<Response>(http.request('http://basic.connection'), res => {
                expect(res.text()).toBe('base response');
                async.done();
              });
@@ -102,8 +165,8 @@ export function main() {
 
       describe('.get()', () => {
         it('should perform a get request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.GET);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Get);
                backend.resolveAllConnections();
                async.done();
              });
@@ -114,8 +177,8 @@ export function main() {
 
       describe('.post()', () => {
         it('should perform a post request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.POST);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Post);
                backend.resolveAllConnections();
                async.done();
              });
@@ -125,7 +188,7 @@ export function main() {
 
         it('should attach the provided body to the request', inject([AsyncTestCompleter], async => {
              var body = 'this is my post body';
-             ObservableWrapper.subscribe(backend.connections, c => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
                expect(c.request.text()).toBe(body);
                backend.resolveAllConnections();
                async.done();
@@ -137,8 +200,8 @@ export function main() {
 
       describe('.put()', () => {
         it('should perform a put request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.PUT);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Put);
                backend.resolveAllConnections();
                async.done();
              });
@@ -147,7 +210,7 @@ export function main() {
 
         it('should attach the provided body to the request', inject([AsyncTestCompleter], async => {
              var body = 'this is my put body';
-             ObservableWrapper.subscribe(backend.connections, c => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
                expect(c.request.text()).toBe(body);
                backend.resolveAllConnections();
                async.done();
@@ -159,8 +222,8 @@ export function main() {
 
       describe('.delete()', () => {
         it('should perform a delete request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.DELETE);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Delete);
                backend.resolveAllConnections();
                async.done();
              });
@@ -171,8 +234,8 @@ export function main() {
 
       describe('.patch()', () => {
         it('should perform a patch request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.PATCH);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Patch);
                backend.resolveAllConnections();
                async.done();
              });
@@ -181,7 +244,7 @@ export function main() {
 
         it('should attach the provided body to the request', inject([AsyncTestCompleter], async => {
              var body = 'this is my patch body';
-             ObservableWrapper.subscribe(backend.connections, c => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
                expect(c.request.text()).toBe(body);
                backend.resolveAllConnections();
                async.done();
@@ -193,12 +256,53 @@ export function main() {
 
       describe('.head()', () => {
         it('should perform a head request for given url', inject([AsyncTestCompleter], async => {
-             ObservableWrapper.subscribe(backend.connections, c => {
-               expect(c.request.method).toBe(RequestMethods.HEAD);
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.method).toBe(RequestMethods.Head);
                backend.resolveAllConnections();
                async.done();
              });
              ObservableWrapper.subscribe(http.head(url), res => {});
+           }));
+      });
+
+
+      describe('searchParams', () => {
+        it('should append search params to url', inject([AsyncTestCompleter], async => {
+             var params = new URLSearchParams();
+             params.append('q', 'puppies');
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.url).toEqual('https://www.google.com?q=puppies');
+               backend.resolveAllConnections();
+               async.done();
+             });
+             ObservableWrapper.subscribe(
+                 http.get('https://www.google.com', new RequestOptions({search: params})),
+                 res => {});
+           }));
+
+
+        it('should append string search params to url', inject([AsyncTestCompleter], async => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.url).toEqual('https://www.google.com?q=piggies');
+               backend.resolveAllConnections();
+               async.done();
+             });
+             ObservableWrapper.subscribe(
+                 http.get('https://www.google.com', new RequestOptions({search: 'q=piggies'})),
+                 res => {});
+           }));
+
+
+        it('should produce valid url when url already contains a query',
+           inject([AsyncTestCompleter], async => {
+             ObservableWrapper.subscribe<MockConnection>(backend.connections, c => {
+               expect(c.request.url).toEqual('https://www.google.com?q=angular&as_eq=1.x');
+               backend.resolveAllConnections();
+               async.done();
+             });
+             ObservableWrapper.subscribe(http.get('https://www.google.com?q=angular',
+                                                  new RequestOptions({search: 'as_eq=1.x'})),
+                                         res => {});
            }));
       });
     });

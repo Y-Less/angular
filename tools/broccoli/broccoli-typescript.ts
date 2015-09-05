@@ -41,6 +41,8 @@ class DiffingTSCompiler implements DiffingBroccoliPlugin {
     this.tsOpts = Object.create(options);
     this.tsOpts.outDir = this.cachePath;
     this.tsOpts.target = (<any>ts).ScriptTarget[options.target];
+    this.tsOpts.module = (<any>ts).ModuleKind[options.module];
+    this.tsOpts.experimentalDecorators = true;
     this.rootFilePaths = options.rootFilePaths ? options.rootFilePaths.splice(0) : [];
     this.tsServiceHost = new CustomLanguageServiceHost(this.tsOpts, this.rootFilePaths,
                                                        this.fileRegistry, this.inputPath);
@@ -216,9 +218,10 @@ class CustomLanguageServiceHost implements ts.LanguageServiceHost {
    * not worth the potential issues with stale cache records.
    */
   getScriptSnapshot(tsFilePath: string): ts.IScriptSnapshot {
-    let absoluteTsFilePath = (tsFilePath == this.defaultLibFilePath) ?
-                                 tsFilePath :
-                                 path.join(this.treeInputPath, tsFilePath);
+    let absoluteTsFilePath =
+        (tsFilePath == this.defaultLibFilePath || path.isAbsolute(tsFilePath)) ?
+            tsFilePath :
+            path.join(this.treeInputPath, tsFilePath);
 
     if (!fs.existsSync(absoluteTsFilePath)) {
       // TypeScript seems to request lots of bogus paths during import path lookup and resolution,

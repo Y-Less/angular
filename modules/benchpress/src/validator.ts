@@ -1,6 +1,6 @@
-import {bind} from 'angular2/di';
-import {List, StringMap} from 'angular2/src/facade/collection';
-import {ABSTRACT, BaseException} from 'angular2/src/facade/lang';
+import {bind, Binding} from 'angular2/src/core/di';
+import {StringMap} from 'angular2/src/core/facade/collection';
+import {ABSTRACT, BaseException} from 'angular2/src/core/facade/lang';
 
 import {MeasureValues} from './measure_values';
 
@@ -11,16 +11,14 @@ import {MeasureValues} from './measure_values';
  */
 @ABSTRACT()
 export class Validator {
-  static bindTo(delegateToken) {
+  static bindTo(delegateToken): Binding[] {
     return [bind(Validator).toFactory((delegate) => delegate, [delegateToken])];
   }
 
   /**
    * Calculates a valid sample out of the complete sample
    */
-  validate(completeSample: List<MeasureValues>): List<MeasureValues> {
-    throw new BaseException('NYI');
-  }
+  validate(completeSample: MeasureValues[]): MeasureValues[] { throw new BaseException('NYI'); }
 
   /**
    * Returns a Map that describes the properties of the validator

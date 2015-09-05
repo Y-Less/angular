@@ -1,7 +1,6 @@
-import {BaseException} from 'angular2/src/facade/lang';
-import {bootstrap, Component, View} from 'angular2/angular2';
-import {reflector} from 'angular2/src/reflection/reflection';
-import {ReflectionCapabilities} from 'angular2/src/reflection/reflection_capabilities';
+import {BaseException} from 'angular2/src/core/facade/lang';
+import {bootstrap} from 'angular2/bootstrap';
+import {Component, View} from 'angular2/core';
 
 @Component({
   selector: 'error-app',
@@ -15,6 +14,5 @@ export class ErrorComponent {
 }
 
 export function main() {
-  reflector.reflectionCapabilities = new ReflectionCapabilities();  // for the Dart version
   bootstrap(ErrorComponent);
 }

@@ -13,19 +13,17 @@ import {
   it,
   xit,
   TestComponentBuilder,
-  RootTestComponent,
-  inspectElement,
-  By
+  RootTestComponent
 } from 'angular2/test_lib';
 
-import {Injector} from 'angular2/di';
-import {NgIf} from 'angular2/directives';
-import {Component, View, LifecycleEvent} from 'angular2/annotations';
-import * as viewAnn from 'angular2/src/core/annotations_impl/view';
+import {OnDestroy} from 'angular2/lifecycle_hooks';
+import {Injector, NgIf} from 'angular2/core';
+import {inspectElement, By} from 'angular2/src/core/debug';
+import {Component, View, ViewMetadata} from 'angular2/src/core/metadata';
 import {DynamicComponentLoader} from 'angular2/src/core/compiler/dynamic_component_loader';
 import {ElementRef} from 'angular2/src/core/compiler/element_ref';
-import {DOCUMENT_TOKEN} from 'angular2/src/render/dom/dom_renderer';
-import {DOM} from 'angular2/src/dom/dom_adapter';
+import {DOCUMENT} from 'angular2/src/core/render/render';
+import {DOM} from 'angular2/src/core/dom/dom_adapter';
 
 export function main() {
   describe('DynamicComponentLoader', function() {
@@ -35,7 +33,7 @@ export function main() {
                 (loader, tcb: TestComponentBuilder, async) => {
                   tcb.overrideView(
                          MyComp,
-                         new viewAnn.View(
+                         new ViewMetadata(
                              {template: '<location #loc></location>', directives: [Location]}))
                       .createAsync(MyComp)
                       .then((tc) => {
@@ -53,7 +51,7 @@ export function main() {
                 (loader, tcb: TestComponentBuilder, async) => {
                   tcb.overrideView(
                          MyComp,
-                         new viewAnn.View(
+                         new ViewMetadata(
                              {template: '<location #loc></location>', directives: [Location]}))
                       .createAsync(MyComp)
                       .then((tc) => {
@@ -70,13 +68,13 @@ export function main() {
       it('should allow to dispose even if the location has been removed',
          inject([DynamicComponentLoader, TestComponentBuilder, AsyncTestCompleter],
                 (loader, tcb: TestComponentBuilder, async) => {
-                  tcb.overrideView(MyComp, new viewAnn.View({
-                       template: '<child-cmp *ng-if="ctxBoolProp"></child-cmp>',
-                       directives: [NgIf, ChildComp]
-                     }))
+                  tcb.overrideView(MyComp, new ViewMetadata({
+                                     template: '<child-cmp *ng-if="ctxBoolProp"></child-cmp>',
+                                     directives: [NgIf, ChildComp]
+                                   }))
                       .overrideView(
                           ChildComp,
-                          new viewAnn.View(
+                          new ViewMetadata(
                               {template: '<location #loc></location>', directives: [Location]}))
                       .createAsync(MyComp)
                       .then((tc) => {
@@ -103,7 +101,7 @@ export function main() {
              [DynamicComponentLoader, TestComponentBuilder, AsyncTestCompleter],
              (loader, tcb: TestComponentBuilder, async) => {
                tcb.overrideView(
-                      MyComp, new viewAnn.View(
+                      MyComp, new ViewMetadata(
                                   {template: '<location #loc></location>', directives: [Location]}))
                    .createAsync(MyComp)
                    .then((tc) => {
@@ -125,7 +123,7 @@ export function main() {
                 (loader, tcb: TestComponentBuilder, async) => {
                   tcb.overrideView(
                          MyComp,
-                         new viewAnn.View(
+                         new ViewMetadata(
                              {template: '<location #loc></location>', directives: [Location]}))
                       .createAsync(MyComp)
                       .then((tc) => {
@@ -140,10 +138,11 @@ export function main() {
     describe("loading next to a location", () => {
       it('should work', inject([DynamicComponentLoader, TestComponentBuilder, AsyncTestCompleter],
                                (loader, tcb: TestComponentBuilder, async) => {
-                                 tcb.overrideView(MyComp, new viewAnn.View({
-                                      template: '<div><location #loc></location></div>',
-                                      directives: [Location]
-                                    }))
+                                 tcb.overrideView(
+                                        MyComp, new ViewMetadata({
+                                          template: '<div><location #loc></location></div>',
+                                          directives: [Location]
+                                        }))
                                      .createAsync(MyComp)
                                      .then((tc) => {
                                        loader.loadNextToLocation(DynamicallyLoaded, tc.elementRef)
@@ -160,10 +159,10 @@ export function main() {
       it('should return a disposable component ref',
          inject([DynamicComponentLoader, TestComponentBuilder, AsyncTestCompleter],
                 (loader, tcb: TestComponentBuilder, async) => {
-                  tcb.overrideView(MyComp, new viewAnn.View({
-                       template: '<div><location #loc></location></div>',
-                       directives: [Location]
-                     }))
+                  tcb.overrideView(MyComp, new ViewMetadata({
+                                     template: '<div><location #loc></location></div>',
+                                     directives: [Location]
+                                   }))
                       .
 
                       createAsync(MyComp)
@@ -193,10 +192,10 @@ export function main() {
       it('should update host properties',
          inject([DynamicComponentLoader, TestComponentBuilder, AsyncTestCompleter],
                 (loader, tcb: TestComponentBuilder, async) => {
-                  tcb.overrideView(MyComp, new viewAnn.View({
-                       template: '<div><location #loc></location></div>',
-                       directives: [Location]
-                     }))
+                  tcb.overrideView(MyComp, new ViewMetadata({
+                                     template: '<div><location #loc></location></div>',
+                                     directives: [Location]
+                                   }))
 
                       .createAsync(MyComp)
                       .then((tc) => {
@@ -218,7 +217,7 @@ export function main() {
 
     describe('loadAsRoot', () => {
       it('should allow to create, update and destroy components',
-         inject([AsyncTestCompleter, DynamicComponentLoader, DOCUMENT_TOKEN, Injector],
+         inject([AsyncTestCompleter, DynamicComponentLoader, DOCUMENT, Injector],
                 (async, loader, doc, injector) => {
                   var rootEl = el('<child-cmp></child-cmp>');
                   DOM.appendChild(doc.body, rootEl);
@@ -262,13 +261,9 @@ class ChildComp {
 
 class DynamicallyCreatedComponentService {}
 
-@Component({
-  selector: 'hello-cmp',
-  viewInjector: [DynamicallyCreatedComponentService],
-  lifecycle: [LifecycleEvent.onDestroy]
-})
+@Component({selector: 'hello-cmp', viewBindings: [DynamicallyCreatedComponentService]})
 @View({template: "{{greeting}}"})
-class DynamicallyCreatedCmp {
+class DynamicallyCreatedCmp implements OnDestroy {
   greeting: string;
   dynamicallyCreatedComponentService: DynamicallyCreatedComponentService;
   destroyed: boolean = false;
